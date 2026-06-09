@@ -82,9 +82,10 @@ def load_gemini_key() -> str | None:
     # Project .env is loaded into os.environ at import — single, in-folder source.
     # No ~/.env read (that would be a hidden outside-the-folder dependency).
     for var in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"):
-        v = os.environ.get(var)
+        # Defensive: strip inline "# comment" remnants some .env editors leave in values.
+        v = (os.environ.get(var) or "").split("#")[0].strip()
         if v:
-            return v.strip()
+            return v
     return None
 
 

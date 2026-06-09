@@ -37,7 +37,8 @@ class AirROIError(RuntimeError):
 
 
 def _key() -> str:
-    k = os.environ.get("AIRROI_API_KEY", "").strip()
+    # Defensive: strip inline "# comment" remnants some .env editors leave in values.
+    k = os.environ.get("AIRROI_API_KEY", "").split("#")[0].strip()
     if not k:
         raise AirROIError(
             "AIRROI_API_KEY not set. Put it in the project .env (see .env.example). "
