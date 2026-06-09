@@ -261,7 +261,8 @@ def main():
     ap.add_argument("--photos", required=True, help="Hospitable images JSON or list")
     ap.add_argument("--limit", type=int, default=30, help="score the top-N photos by order")
     ap.add_argument("--model", default=DEFAULT_MODEL)
-    ap.add_argument("--concurrency", type=int, default=5)
+    ap.add_argument("--concurrency", type=int, default=3,
+                    help="parallel Gemini calls (default 3 — raise carefully; free-tier keys rate-limit)")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
@@ -298,6 +299,9 @@ def main():
         print(f"[analyze_photos] scored {result['scored_count']}/{len(photos)} "
               f"({len(errs)} errors) → {out_path}")
         print(f"  hero=#{result['hero']}  top5={result['recommended_top5_order']}  gaps={len(result['gaps'])}")
+        if errs:
+            print(f"  hint: {len(errs)} photo(s) failed (often transient rate limits) — "
+                  f"re-run with --concurrency 2 to fill them in.")
     else:
         print(text)
 

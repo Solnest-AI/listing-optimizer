@@ -96,10 +96,10 @@
   <h2>Photo Plan</h2>
   <div class="card">
     <div><strong>Hero:</strong> photo #{{ data.photos.hero }} &nbsp;·&nbsp;
-      <strong>Recommended order:</strong> {{ data.photos.recommended_top5_order | join(' → ') }}</div>
+      <strong>Recommended order:</strong> {{ (data.photos.recommended_top5_order or []) | join(' → ') }}</div>
     {% if data.photos.scored %}
     <div class="photos" style="margin-top:12px">
-      {% for o in data.photos.recommended_top5_order %}
+      {% for o in (data.photos.recommended_top5_order or []) %}
         {% for p in data.photos.scored if p.order == o %}
         <figure>
           <img src="{{ p.url }}" alt="{{ p.subject }}">

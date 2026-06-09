@@ -40,7 +40,7 @@
 ## Photo Plan
 
 - **Hero:** photo #{{ data.photos.hero }}
-- **Recommended order:** {{ data.photos.recommended_top5_order | join(' → ') }}
+- **Recommended order:** {{ (data.photos.recommended_top5_order or []) | join(' → ') }}
 {% if data.photos.reshoot %}- **Reshoot:** {{ data.photos.reshoot | join(', ') }}{% endif %}
 {% if data.photos.restage %}- **Restage:** {{ data.photos.restage | join(', ') }}{% endif %}
 {% if data.photos.gaps %}
@@ -137,6 +137,7 @@ _RankBreeze cross-check: **{{ data.occupancy.rankbreeze_crosscheck }}** — Hosp
 {% for d in data.cadence.due %}| {{ d.item }} | {{ d.last }} | {{ d.due }} | {{ d.status }} |
 {% endfor %}
 {% endif %}
+
 ---
 
 _{{ data.branding.company_name }} · {{ data.branding.tagline }} · {{ data.branding.website_url }}_

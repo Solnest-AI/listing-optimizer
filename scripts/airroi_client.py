@@ -26,7 +26,10 @@ except Exception:
     pass  # dotenv optional; env vars still work
 
 BASE = os.environ.get("AIRROI_BASE_URL", "https://api.airroi.com")
-TIMEOUT = int(os.environ.get("AIRROI_TIMEOUT", "30"))
+try:
+    TIMEOUT = int(os.environ.get("AIRROI_TIMEOUT", "30"))
+except ValueError:  # a bad AIRROI_TIMEOUT in .env shouldn't crash the import
+    TIMEOUT = 30
 
 
 class AirROIError(RuntimeError):
@@ -64,7 +67,9 @@ async def get_comparables(*, latitude=None, longitude=None, address=None,
     params: dict = {"bedrooms": bedrooms, "baths": baths, "guests": guests, "currency": currency}
     if radius is not None:
         params["radius"] = radius
-    if address and not (latitude and longitude):
+    # NB: "is not None", not truthiness — 0.0 is a valid coordinate.
+    has_coords = latitude is not None and longitude is not None
+    if address and not has_coords:
         params["address"] = address
     else:
         params["latitude"] = latitude

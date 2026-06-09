@@ -25,9 +25,15 @@ plus a photo plan and a competitor-gap report. A human pastes the result into th
 
 1. **Python 3.10+** and a virtualenv:
    ```bash
+   # macOS / Linux
    python3 -m venv .venv
    .venv/bin/pip install -r requirements.txt
+
+   # Windows (PowerShell)
+   py -m venv .venv
+   .venv\Scripts\pip install -r requirements.txt
    ```
+   (On Windows, wherever this README or the skill says `.venv/bin/python`, use `.venv\Scripts\python`.)
 2. **Keys** — copy the template and fill in your two keys:
    ```bash
    cp .env.example .env

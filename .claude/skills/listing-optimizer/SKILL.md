@@ -19,7 +19,7 @@ Optimizes one short-term-rental listing against the **ALE framework** (the engin
 - `references/photo-rubric.md` — what photos are scored against
 
 ## Environment (fully self-contained — nothing outside this folder but keys)
-- Python: `.venv/bin/python` (project venv). Scripts live in `scripts/`.
+- Python: `.venv/bin/python` (project venv; on Windows use `.venv\Scripts\python` — substitute throughout). Scripts live in `scripts/`. If no `.venv` exists yet, create it first: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`.
 - **Keys: project `.env`** (gitignored; see `.env.example`). `AIRROI_API_KEY` (comps) + `GEMINI_API_KEY` (photos). Both `airroi_client.py` and `analyze_photos.py` auto-load it.
 - **AirROI: vendored** in `scripts/airroi_client.py` — direct API calls, no external repo.
 - **Listings: discovered live from the connected PMS** (Hospitable `list_properties` → `get_property`). Nothing hardcoded. Optional per-user overrides in `config/properties.json` (gitignored; see `config/properties.example.json`).
@@ -31,7 +31,7 @@ Optimizes one short-term-rental listing against the **ALE framework** (the engin
 
 ## Pipeline (per run)
 
-Set `SLUG`, `DATE` (today, YYYY-MM-DD), and the property's IDs/coords from the table below.
+Set `SLUG`, `DATE` (today, YYYY-MM-DD), and the property's IDs/coords from **PMS discovery** (see "The listings" section below: `hospitable_list_properties` → `hospitable_get_property`).
 Make the working dir: `output/<DATE>/<SLUG>/`.
 
 ### 1. Pull subject — FREE, from Hospitable (read-only)
