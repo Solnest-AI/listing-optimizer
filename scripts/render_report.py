@@ -75,7 +75,7 @@ def build_paste_block(data: dict) -> str:
     o = data.get("optimized", {})
     lines = []
     lines.append(f"=== {data.get('listing', {}).get('name', 'Listing')} — Optimized Content ===")
-    lines.append(f"(Generated {data.get('run_date', '')} · paste into Hospitable; it syncs to channels)\n")
+    lines.append(f"(Generated {data.get('run_date', '')} · paste into your PMS; it syncs to your channels)\n")
     lines.append("--- TITLE ---")
     lines.append(o.get("title", "").strip() + "\n")
     sc = o.get("summary_char_count")

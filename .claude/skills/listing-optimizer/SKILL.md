@@ -1,15 +1,20 @@
 ---
 name: listing-optimizer
-description: Optimize a short-term-rental listing against the ALE framework. Use when the user says "optimize [listing]", "run the listing optimizer", "refresh my [listing]", or wants paste-ready title/summary/"The Space"/photo-caption + comp-gap + photo-plan output for an Airbnb listing. Discovers the user's own listings from THEIR connected PMS (any PMS — Hospitable supported out of the box; Hostaway/Guesty/OwnerRez/Lodgify/Smoobu/etc. via their MCP or REST API per the data contract in CLAUDE.md), pulls the subject free from the PMS, comps from AirROI, scores photos with Gemini, and writes HTML+Markdown+paste-block to the Desktop. Never touches pricing; never writes back to any channel.
+description: Optimize a short-term-rental listing against the ALE framework. Use when the user says "optimize [listing]", "run the listing optimizer", "refresh my [listing]", or wants paste-ready title/summary/"The Space"/photo-caption + comp-gap + photo-plan output for an Airbnb listing. Discovers the user's own listings from THEIR connected PMS (any PMS — Hospitable supported out of the box; Hostaway/Guesty/OwnerRez/Lodgify/Smoobu/etc. via their MCP or REST API per the data contract in CLAUDE.md), pulls the subject free from the PMS, comps from AirROI, scores photos with Gemini, and writes HTML+Markdown+paste-block to the Desktop. Never touches pricing. Paste-ready by default; on PMSs that support content writes it can apply the approved copy (opt-in, content-only — Hospitable is always paste-only).
 ---
 
 # Listing Optimizer
 
-Optimizes one short-term-rental listing against the **ALE framework** (the engine). Photo eval + comp eval are **inputs that feed ALE**. StoryBrand SB7 shapes the copy. Output is **paste-ready** — a human enters it into Hospitable, which syncs to the channels.
+Optimizes one short-term-rental listing against the **ALE framework** (the engine). Photo eval + comp eval are **inputs that feed ALE**. StoryBrand SB7 shapes the copy. Output is **paste-ready** by default — the user enters it into their PMS, which syncs to the channels. On PMSs with content-write APIs, Step 8 can apply it for them after explicit approval.
 
 ## ⛔ Hard rules (non-negotiable)
 1. **No pricing. Ever.** Never read, recommend, surface, or write price / ADR / RevPAR / revenue / min-stay. `render_report.py` scans every deliverable and refuses to write if any appear.
-2. **No write-back.** Never push to any PMS or channel (Airbnb / VRBO / Booking). PMS access is **read-only**, whatever the PMS — for Hospitable that means only `hospitable_get_property`, `hospitable_get_property_images`, `hospitable_list_reviews`, `hospitable_get_property_calendar`, `hospitable_list_reservations` (or the same subcommands of `scripts/hospitable_api.py`). **Never** call any create/update/delete tool or endpoint on any PMS. Output is paste-ready only.
+2. **Write-back is OPT-IN, content-only, and explicitly confirmed.** Default = read-only + paste-ready output. If the user's PMS supports listing-content writes (Hostaway, Guesty, OwnerRez, Lodgify, Smoobu, … — **Hospitable does NOT**: its listing endpoints are read-only, so Hospitable is always paste-only), you MAY apply the optimized content for them — only under ALL of these conditions:
+   - The user **explicitly approves in this session** ("apply it") *after* seeing the exact content. Never auto-push; setup consent or a previous run's approval does not carry over.
+   - **Before-snapshot first:** save the current live content to the working dir as `before-writeback.json` and tell the user it exists (their undo).
+   - **Content fields only:** title, summary/description, "The Space", photo captions/order. Build the update payload from scratch with ONLY those keys — **never** send rates, calendar, availability, min-stay, fees, or policies, and never PUT back a full listing object (it can carry pricing).
+   - **Verify after writing:** re-read the listing, confirm the change landed, and report exactly which fields were written.
+   - **Calendar and pricing endpoints remain forbidden on every PMS, always** — reading availability for occupancy is fine; writing anything to a calendar is not.
 3. **ALE is the engine.** Photos + comps feed it; SB7 lives inside the copy.
 4. **Subject = Hospitable (free).** AirROI is used **only** for competitor comps — never for our own listing.
 
@@ -109,8 +114,17 @@ Writes `report.html`, `report.md`, `paste-block.txt` to `~/Desktop/Listing Optim
 - Confirm the guardrail regex itself is intact: `.venv/bin/python tests/test_guardrail.py` → must print ✅.
 - Belt-and-suspenders grep over the 3 Desktop files (must be 0):
   `grep -iEc 'pric(e|ed|ing)|adr|revpar|revenue|per[ -]?night|/night|nightly rate|daily rate|min(imum)?[ -]?stay|minimum night|[$€£¥][0-9]|(USD|CAD|EUR|GBP|AUD) ?[0-9]'`
-- Confirm only **read** Hospitable tools were called (no create/update/delete; calendar/reservations read-only).
-- Summarize for the user: ALE score, top 3 gaps, hero + top-5, occupancy (Hospitable vs RankBreeze), what's due, output path.
+- Confirm only **read** PMS calls were made during the pipeline (writes happen only in Step 8, if at all).
+- Summarize for the user: ALE score, top 3 gaps, hero + top-5, occupancy (PMS vs RankBreeze), what's due, output path.
+
+### 8. OPTIONAL — Apply to the PMS (write-back; supported PMSs only, explicit approval required)
+Skip entirely unless the user asks (e.g. "apply it", "push it to my PMS") — and on **Hospitable, this step does not exist** (read-only API; the paste block is the path).
+1. Confirm their PMS supports listing-content updates (Hostaway, Guesty, OwnerRez, Lodgify, Smoobu, … — check its MCP write tools or API docs). *(These paths are not yet end-to-end tested — say so, and verify in the PMS UI afterward.)*
+2. Show the user the exact fields you intend to write (title / summary / description / captions) and get an explicit **"yes, apply"** in this session.
+3. **Before-snapshot:** re-read the live listing and save it to `output/<DATE>/<SLUG>/before-writeback.json` — tell the user this is their undo.
+4. Apply via the PMS's content-update tool/endpoint, sending a payload built from scratch containing **only** the approved content fields. Never include rates, calendar, availability, min-stay, fees, or policies; never PUT a merged/full listing object back.
+5. Re-read the listing, confirm each field landed, and report exactly what changed. If anything looks wrong, offer to restore from the snapshot.
+6. Mark the cadence items refreshed (already done in Step 5's flow) and remind them channel sync (Airbnb/VRBO) can take a little while.
 
 ---
 

@@ -6,7 +6,10 @@ connected PMS, evaluates your photos, compares you to the top performers in your
 writes **paste-ready** copy — new title, 500-char summary, "The Space", and per-photo captions —
 plus a photo plan and a competitor-gap report. A human pastes the result into the PMS.
 
-**It never touches pricing, and never writes back to any channel.** Output is paste-ready only.
+**It never touches pricing, calendars, or availability.** Output is paste-ready by default;
+on PMSs that support content updates (Hostaway, Guesty, OwnerRez, Lodgify, …) you can review a
+run and say *"apply it"* — Claude pushes the new copy after taking a backup snapshot.
+(Hospitable is paste-only: its listing API is read-only.)
 
 ---
 

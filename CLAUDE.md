@@ -4,8 +4,10 @@ This folder is the **Listing Optimizer**: a Claude Code skill that optimizes sho
 listings against the ALE framework (see `README.md` for the human overview, and
 `.claude/skills/listing-optimizer/SKILL.md` for the full pipeline).
 
-**Hard rules: it NEVER touches pricing and NEVER writes to the user's PMS.** All PMS access
-is read-only; output is paste-ready content the user enters manually.
+**Hard rules: it NEVER touches pricing, calendars, or availability.** Output is paste-ready
+content by default. On PMSs that support listing-content writes, it can apply the approved
+copy for the user — opt-in, content-only, with a before-snapshot (see the write-back rules
+below). Hospitable is always paste-only (its listing API is read-only).
 
 ---
 
@@ -59,8 +61,11 @@ Ask: **"Which PMS do you use?"** and branch:
    account/developer settings — help them find it on their PMS's website). Save to `.env` as:
    `PMS_NAME=<pms>`, `PMS_TOKEN=<token>` (plus `PMS_BASE_URL=` / account id if that PMS
    needs one). At run time, you call that PMS's **public REST API directly** (look up its
-   docs) using **GET/read endpoints only**, and map the responses onto the data contract
+   docs), using read endpoints for the pipeline, and map the responses onto the data contract
    below. Strip any price/rate/min-stay fields at ingestion, same as the Hospitable client does.
+3. **Bonus on these PMSs:** most support listing-content writes — after a run, the user can
+   say "apply it" and you push the approved copy for them (see the write-back rules below).
+   Mention this during setup so they know it's available.
 
 **C. No PMS at all (Airbnb only):** external mode still works — given their Airbnb listing
 URL/ID, AirROI supplies the subject content AND the photo gallery (`/listings?id=`), so comps +
@@ -79,7 +84,9 @@ the step-5 properties check is the live verification.
 ### Step 8 — Confirm + teach usage
 Tell them setup is done and they can now say **"optimize my [listing name]"** or
 **"run the listing optimizer."** Reports land in `~/Desktop/Listing Optimizer/<listing>/<date>/`
-as HTML + Markdown + a paste-ready block.
+as HTML + Markdown + a paste-ready block. On PMSs that support content writes, they can also
+say **"apply it"** after reviewing a run to push the new copy (Hospitable users paste manually
+— its API is read-only).
 
 ---
 
@@ -93,10 +100,22 @@ as HTML + Markdown + a paste-ready block.
 | 4 | Reviews (text + ratings + responded?) | Reviews channel + copy quotes | nice-to-have |
 | 5 | Calendar availability (dates + available/booked/blocked ONLY) | occupancy (source of truth) | nice-to-have |
 | 6 | Upcoming reservation count | occupancy context | nice-to-have |
+| 7 | Listing-content UPDATE (title/description/captions) | optional write-back (Step 8) | optional — Hospitable doesn't offer it |
 
-Rules when mapping any PMS onto this: **read-only endpoints/tools only** (never create/update/
-delete); **strip price, rates, and min-stay** from calendar data at ingestion; missing
+Rules when mapping any PMS onto this: the **pipeline (steps 1–7) uses read-only endpoints/tools
+only**; **strip price, rates, and min-stay** from calendar data at ingestion; missing
 nice-to-haves degrade gracefully (the report simply omits those sections).
+
+**Write-back rules (row 7 — the ONLY permitted writes, ever):**
+- Only after the user sees the exact content and explicitly says to apply it, in that session.
+- Save a `before-writeback.json` snapshot of the live content first (their undo).
+- Send ONLY content fields (title, summary/description, captions/photo order) in a payload
+  built from scratch — never rates, calendar, availability, min-stay, fees, policies, and
+  never a merged/full listing object.
+- Re-read afterward and report exactly what changed.
+- Calendar/pricing endpoints are forbidden on every PMS, always.
+- Non-Hospitable write paths are not yet end-to-end tested — say so, and have the user verify
+  in their PMS UI after the first write.
 
 ## Running the optimizer
 
@@ -108,5 +127,6 @@ data contract above.
 ## Invariants (do not bend these)
 
 - **Zero pricing** in any output — `render_report.py` enforces it and has no bypass.
-- **Read-only PMS** — never call any create/update/delete endpoint or tool, on any PMS.
+- **Pricing/calendar/availability writes: never, on any PMS.** The only permitted writes are
+  the Step-8 content write-back, under its rules (explicit approval, snapshot, content-only).
 - Keys live only in `.env` (gitignored). Never print or commit them.
