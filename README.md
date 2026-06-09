@@ -14,9 +14,9 @@ plus a photo plan and a competitor-gap report. A human pastes the result into th
 
 | Step | Source | Notes |
 |---|---|---|
-| Your listings + subject content + reviews + occupancy | **Hospitable** (your connected PMS) | Free, read-only. Listings are discovered live — nothing hardcoded. |
+| Your listings + subject content + reviews + occupancy | **Your PMS** | Free, read-only. Listings discovered live — nothing hardcoded. **Hospitable works out of the box** (just a token); Hostaway / Guesty / OwnerRez / Lodgify / Smoobu / others connect via their MCP server or API token. No PMS? Airbnb-only mode works from your listing URL. |
 | Competitor comps | **AirROI API** | The only paid call. Needs `AIRROI_API_KEY`. |
-| Photo scoring (hero + top-5) | **Google Gemini API** | Needs `GEMINI_API_KEY`. Scores each photo 0–5 on quality + ALE fit. |
+| Photo scoring (hero + top-5) | **Google Gemini API** | Needs `GEMINI_API_KEY` (free tier OK). Scores each photo 0–5 on quality + ALE fit. |
 | Funnel (rank/CTR/views) — optional | **RankBreeze MCP** | Optional connector; skipped if not configured. |
 
 ---
@@ -51,11 +51,16 @@ install (the playbook it follows is `CLAUDE.md` in this folder). Then just say
    ```bash
    cp branding.example.json branding.json   # then edit
    ```
-4. **Connect your PMS — either way works:**
-   - **Hospitable MCP server** added to Claude Code, **or**
-   - **no MCP at all**: put a Hospitable Platform token in `.env` as `HOSPITABLE_TOKEN`
+4. **Connect your PMS:**
+   - **Hospitable** (easiest): put a Platform token in `.env` as `HOSPITABLE_TOKEN`
      (my.hospitable.com → Apps → API access) — the bundled `scripts/hospitable_api.py`
-     reads your listings directly. (RankBreeze MCP is optional, for funnel data.)
+     reads your listings directly. No MCP server needed.
+   - **Any other PMS** (Hostaway, Guesty, OwnerRez, Lodgify, Smoobu, …): connect its MCP
+     server to Claude Code, or put its API token in `.env` (`PMS_NAME=` / `PMS_TOKEN=`) and
+     Claude reads it via that PMS's API — read-only either way.
+   - **No PMS:** Airbnb-only mode — Claude pulls your listing + photos via AirROI from your
+     Airbnb URL (no occupancy data in this mode).
+   (RankBreeze MCP is optional, for funnel data.)
 
 `.env`, `branding.json`, and `config/properties.json` are **gitignored** — they hold your keys/brand
 and never get committed or shared.

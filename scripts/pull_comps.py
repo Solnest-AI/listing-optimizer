@@ -5,7 +5,8 @@ pull_comps.py — fetch competitor comps for a subject listing via AirROI.
 SELF-CONTAINED: uses the vendored scripts/airroi_client.py (no external repo,
 no sys.path injection). AIRROI_API_KEY comes from the project .env / env.
 This is the ONLY paid (AirROI) call in the optimizer. The subject listing is
-pulled FREE from Hospitable — never from AirROI.
+pulled FREE from the user's PMS (AirROI supplies the subject only in
+no-PMS / Airbnb-only external mode).
 
 ZERO-PRICING GUARDRAIL (non-negotiable):
   - We never output price / ADR / min-stay / revenue / RevPAR.
