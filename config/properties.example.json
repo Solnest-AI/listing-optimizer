@@ -1,0 +1,8 @@
+{
+  "_comment": "OPTIONAL per-user overrides. This tool ships with NO listings — it discovers them live from whatever PMS you connect (Hospitable: hospitable_list_properties). You only need this file for things the PMS can't tell us. Copy to config/properties.json (gitignored) and key entries by the listing's slug (lowercase-hyphenated name). All fields optional.",
+  "your-listing-slug": {
+    "rankbreeze_id": "123456",
+    "seasonal": true,
+    "notes": "Free-text notes for the optimizer (e.g. 'winter ski / summer bike-park')."
+  }
+}

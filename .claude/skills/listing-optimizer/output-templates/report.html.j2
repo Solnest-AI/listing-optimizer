@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ data.branding.report_title }} — {{ data.listing.name }}</title>
+<style>
+  :root{
+    --primary: {{ data.branding.primary_color | default('#1f3c34') }};
+    --accent: {{ data.branding.accent_color | default('#4b7c6b') }};
+    --ink:#1c2622; --muted:#5d6b65; --line:#e4ebe7; --bg:#f6f8f7; --card:#fff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       color:var(--ink);background:var(--bg);line-height:1.55}
+  .wrap{max-width:880px;margin:0 auto;padding:0 20px 64px}
+  header{background:var(--primary);color:#fff;padding:30px 0;margin-bottom:28px}
+  header .wrap{display:flex;align-items:center;gap:18px;padding-bottom:0}
+  header img{height:42px}
+  header h1{font-size:20px;margin:0;font-weight:600}
+  header .sub{opacity:.8;font-size:13px;margin-top:2px}
+  h2{font-size:17px;margin:34px 0 12px;color:var(--primary);border-bottom:2px solid var(--line);padding-bottom:6px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0}
+  .prewrap{white-space:pre-wrap;font-size:14px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .badge{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;color:#fff}
+  .b-good{background:#2e7d52}.b-mid{background:#c8932a}.b-bad{background:#bb4b3c}
+  .scorecard td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top;font-size:13px}
+  .scorecard td.dim{font-weight:600;width:30%}
+  .muted{color:var(--muted)}
+  .chip{display:inline-block;background:#eef3f0;color:var(--primary);border:1px solid var(--line);
+        border-radius:6px;padding:2px 8px;margin:2px 3px 2px 0;font-size:12px}
+  .photos{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+  .photos figure{margin:0}.photos img{width:100%;height:84px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+  .photos figcaption{font-size:10px;color:var(--muted);margin-top:3px;text-align:center}
+  ul.tight{margin:6px 0;padding-left:18px}ul.tight li{margin:3px 0;font-size:13px}
+  table.comps{width:100%;border-collapse:collapse;font-size:13px}
+  table.comps th,table.comps td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+  table.comps th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  .before{color:var(--muted)}.after{color:var(--primary);font-weight:500}
+  .flag{color:#bb4b3c;font-weight:600}
+  footer{margin-top:40px;text-align:center;color:var(--muted);font-size:12px}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    {% if data.branding.logo_url %}<img src="{{ data.branding.logo_url }}" alt="{{ data.branding.company_name }}">{% endif %}
+    <div>
+      <h1>{{ data.branding.report_title }} — {{ data.listing.name }}</h1>
+      <div class="sub">{{ data.branding.company_name }} · {{ data.listing.city }} · {{ data.run_date }}</div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  {% if data.ale_scorecard %}
+  <h2>ALE Scorecard</h2>
+  <div class="card">
+    <table class="scorecard">
+      {% for row in data.ale_scorecard %}
+      <tr>
+        <td class="dim">{{ row.dimension }}</td>
+        <td style="width:60px">
+          {% set s = row.score %}
+          <span class="badge {{ 'b-good' if s>=4 else ('b-mid' if s>=2.5 else 'b-bad') }}">{{ s }}/5</span>
+        </td>
+        <td>
+          {% if row.gap %}<div><span class="muted">Gap:</span> {{ row.gap }}</div>{% endif %}
+          {% if row.fix %}<div><span class="muted">Fix:</span> {{ row.fix }}</div>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  <h2>Optimized Copy</h2>
+  <div class="card">
+    <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em">Title</div>
+    {% if data.current and data.current.title %}<div class="before">Before: {{ data.current.title }}</div>{% endif %}
+    <div class="after" style="font-size:15px">After: {{ data.optimized.title }}</div>
+
+    <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-top:16px">
+      Summary{% if data.optimized.summary_char_count %} ({{ data.optimized.summary_char_count }} chars){% endif %}
+    </div>
+    <div class="prewrap after">{{ data.optimized.summary }}</div>
+
+    <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-top:16px">The Space</div>
+    <div class="prewrap">{{ data.optimized.the_space }}</div>
+  </div>
+
+  {% if data.photos %}
+  <h2>Photo Plan</h2>
+  <div class="card">
+    <div><strong>Hero:</strong> photo #{{ data.photos.hero }} &nbsp;·&nbsp;
+      <strong>Recommended order:</strong> {{ data.photos.recommended_top5_order | join(' → ') }}</div>
+    {% if data.photos.scored %}
+    <div class="photos" style="margin-top:12px">
+      {% for o in data.photos.recommended_top5_order %}
+        {% for p in data.photos.scored if p.order == o %}
+        <figure>
+          <img src="{{ p.url }}" alt="{{ p.subject }}">
+          <figcaption>#{{ p.order }} {{ p.subject }}{% if p.avg %} · {{ p.avg }}{% endif %}</figcaption>
+        </figure>
+        {% endfor %}
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if data.photos.gaps %}<ul class="tight">{% for g in data.photos.gaps %}<li class="flag">{{ g }}</li>{% endfor %}</ul>{% endif %}
+    <div class="muted" style="font-size:12px;margin-top:8px">
+      {% if data.photos.reshoot %}Reshoot: {{ data.photos.reshoot | join(', ') }}. {% endif %}
+      {% if data.photos.restage %}Restage: {{ data.photos.restage | join(', ') }}.{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if data.comps %}
+  <h2>Competitor Gaps <span class="muted" style="font-size:12px;font-weight:400">— top performers by demand</span></h2>
+  <div class="card">
+    {% if data.comps.top %}
+    <table class="comps">
+      <tr><th>Competitor</th><th>Config</th><th>Reviews</th><th>Occupancy</th></tr>
+      {% for c in data.comps.top[:6] %}
+      <tr>
+        <td>{% if c.airbnb_url %}<a href="{{ c.airbnb_url }}">{{ c.name }}</a>{% else %}{{ c.name }}{% endif %}</td>
+        <td>{{ c.bedrooms }}BR · {{ c.guests }} guests</td>
+        <td>{{ c.ratings.num_reviews }} · ★{{ c.ratings.rating_overall }}</td>
+        <td>{% if c.performance.ttm_occupancy %}{{ (c.performance.ttm_occupancy * 100) | round | int }}%{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+    {% if data.comps.amenity_gaps %}
+    <div style="margin-top:14px"><strong>Amenity gaps</strong> (common among winners, missing/buried here):</div>
+    <div>{% for a in data.comps.amenity_gaps %}<span class="chip">{{ a }}</span>{% endfor %}</div>
+    {% endif %}
+    {% if data.comps.title_patterns %}
+    <div style="margin-top:12px"><strong>Title patterns winners use:</strong></div>
+    <ul class="tight">{% for t in data.comps.title_patterns %}<li>{{ t }}</li>{% endfor %}</ul>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if data.funnel %}
+  <h2>Funnel Diagnostic <span class="muted" style="font-size:12px;font-weight:400">— {{ data.funnel.source }} · views = real traffic</span></h2>
+  <div class="card">
+    {% if data.funnel.city_rank %}<div><strong>City rank:</strong> #{{ data.funnel.city_rank.position }} of {{ data.funnel.city_rank.of }} · page {{ data.funnel.city_rank.page }}</div>{% endif %}
+    {% if data.funnel.views_monthly %}
+    <table class="comps" style="margin-top:10px">
+      <tr><th>Monthly</th>{% for k in data.funnel.views_monthly.keys() %}<th>{{ k }}</th>{% endfor %}</tr>
+      <tr><td><strong>Listing views</strong> (real traffic)</td>{% for k in data.funnel.views_monthly.keys() %}<td>{{ data.funnel.views_monthly[k] }}</td>{% endfor %}</tr>
+      {% if data.funnel.booking_rate_monthly %}<tr><td>Booking rate</td>{% for k in data.funnel.views_monthly.keys() %}<td>{{ data.funnel.booking_rate_monthly.get(k,'') }}</td>{% endfor %}</tr>{% endif %}
+    </table>
+    {% endif %}
+    {% if data.funnel.ctr_vs_similar %}<div class="muted" style="font-size:12px;margin-top:8px">CTR {{ data.funnel.ctr_vs_similar.you }} vs {{ data.funnel.ctr_vs_similar.similar }} similar — {{ data.funnel.ctr_vs_similar.note }}</div>{% endif %}
+    {% if data.funnel.lever_focus %}<div style="margin-top:10px"><strong>Lever focus:</strong> {{ data.funnel.lever_focus }}</div>{% endif %}
+    {% if data.funnel.diagnosis %}<div class="muted" style="font-size:13px;margin-top:4px">{{ data.funnel.diagnosis }}</div>{% endif %}
+  </div>
+  {% endif %}
+
+  {% if data.occupancy %}
+  <h2>Occupancy <span class="muted" style="font-size:12px;font-weight:400">— Hospitable (live PMS · source of truth)</span></h2>
+  <div class="card">
+    <div><strong>Forward {{ data.occupancy.forward_days }} days:</strong> {{ data.occupancy.forward_pct }}% occupancy
+      &nbsp;·&nbsp; <strong>{{ data.occupancy.upcoming_reservations }}</strong> upcoming reservations</div>
+    {% if data.occupancy.monthly %}
+    <table class="comps" style="margin-top:10px">
+      <tr><th>Month</th>{% for k in data.occupancy.monthly.keys() %}<th>{{ k }}</th>{% endfor %}</tr>
+      <tr><td>Occupancy</td>{% for k in data.occupancy.monthly.keys() %}<td>{{ data.occupancy.monthly[k] }}</td>{% endfor %}</tr>
+    </table>
+    {% endif %}
+    {% if data.occupancy.rankbreeze_crosscheck %}<div class="muted" style="font-size:12px;margin-top:8px">RankBreeze cross-check: <strong>{{ data.occupancy.rankbreeze_crosscheck }}</strong> — Hospitable is the source of truth.</div>{% endif %}
+  </div>
+  {% endif %}
+
+  {% if data.diagnostics %}
+  <h2>Diagnostics &amp; Handoff</h2>
+  <div class="card">
+    <ul class="tight">
+      {% if data.diagnostics.content_signal %}<li><strong>Content / CTR:</strong> {{ data.diagnostics.content_signal }}</li>{% endif %}
+      {% if data.diagnostics.traffic_signal %}<li><strong>Traffic (views):</strong> {{ data.diagnostics.traffic_signal }}</li>{% endif %}
+      {% if data.diagnostics.occupancy_signal %}<li><strong>Occupancy:</strong> {{ data.diagnostics.occupancy_signal }}</li>{% endif %}
+      {% if data.diagnostics.likely_lever %}<li><strong>Likely lever:</strong> {{ data.diagnostics.likely_lever }}</li>{% endif %}
+    </ul>
+    {% if data.diagnostics.handoff %}<div style="margin-top:8px;padding:10px 12px;background:#eef3f0;border-radius:8px"><strong>→ Handoff:</strong> {{ data.diagnostics.handoff }}</div>{% endif %}
+  </div>
+  {% endif %}
+
+  {% if data.cadence and data.cadence.due %}
+  <h2>Refresh Cadence — What's Due</h2>
+  <div class="card">
+    <table class="comps">
+      <tr><th>Item</th><th>Last done</th><th>Next due</th><th>Status</th></tr>
+      {% for d in data.cadence.due %}
+      <tr>
+        <td>{{ d.item }}</td><td>{{ d.last }}</td><td>{{ d.due }}</td>
+        <td>{% if d.status == 'DUE' %}<span class="badge b-bad">DUE</span>{% else %}<span class="badge b-good">ok</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  <footer>
+    {{ data.branding.company_name }} · {{ data.branding.tagline }} · <a href="{{ data.branding.website_url }}">{{ data.branding.website_url }}</a><br>
+    Paste-ready content only — a human enters it into Hospitable, which syncs to the channels. This tool never reads or changes your calendar.
+  </footer>
+</div>
+</body>
+</html>

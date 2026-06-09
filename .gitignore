@@ -1,0 +1,14 @@
+# Secrets & per-user config — never ship these (copy the .example files instead)
+.env
+branding.json
+config/properties.json
+
+# Private planning docs (not part of the distributable tool)
+LISTING-OPTIMIZER-BUILD-PLAN.md
+
+# Runtime / generated
+.venv/
+__pycache__/
+*.pyc
+output/
+state/

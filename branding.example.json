@@ -1,0 +1,10 @@
+{
+  "_comment": "Copy to branding.json (gitignored) and set your own brand. Used to style the HTML/Markdown report.",
+  "company_name": "Your Company",
+  "tagline": "Short-Term Rental Management",
+  "report_title": "Listing Optimizer",
+  "logo_url": "",
+  "website_url": "",
+  "primary_color": "#1f3c34",
+  "accent_color": "#4b7c6b"
+}

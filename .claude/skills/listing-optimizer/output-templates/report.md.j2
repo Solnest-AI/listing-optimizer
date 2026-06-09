@@ -1,0 +1,143 @@
+# {{ data.branding.report_title }} — {{ data.listing.name }}
+
+**{{ data.branding.company_name }}** · {{ data.listing.city }} · {{ data.run_date }}
+{% if data.listing.airbnb_url %}[View on Airbnb]({{ data.listing.airbnb_url }}){% endif %}
+
+---
+
+{% if data.ale_scorecard %}
+## ALE Scorecard
+
+| Dimension | Score | Gap → Fix |
+|---|---|---|
+{% for row in data.ale_scorecard %}| {{ row.dimension }} | **{{ row.score }}/5** | {% if row.gap %}{{ row.gap }}{% endif %}{% if row.fix %} → {{ row.fix }}{% endif %} |
+{% endfor %}
+
+{% endif %}
+## Optimized Copy
+
+### Title
+{% if data.current and data.current.title %}- _Before:_ {{ data.current.title }}{% endif %}
+- **After:** {{ data.optimized.title }}
+
+### Summary{% if data.optimized.summary_char_count %} ({{ data.optimized.summary_char_count }} chars){% endif %}
+
+{{ data.optimized.summary }}
+
+### The Space
+
+{{ data.optimized.the_space }}
+
+{% if data.optimized.captions %}
+### Photo Captions (recommended order)
+
+{% for c in data.optimized.captions %}- **#{{ c.order }} {{ c.subject }}** — {{ c.caption }}
+{% endfor %}
+{% endif %}
+{% if data.photos %}
+---
+
+## Photo Plan
+
+- **Hero:** photo #{{ data.photos.hero }}
+- **Recommended order:** {{ data.photos.recommended_top5_order | join(' → ') }}
+{% if data.photos.reshoot %}- **Reshoot:** {{ data.photos.reshoot | join(', ') }}{% endif %}
+{% if data.photos.restage %}- **Restage:** {{ data.photos.restage | join(', ') }}{% endif %}
+{% if data.photos.gaps %}
+
+**Gaps:**
+{% for g in data.photos.gaps %}- ⚠️ {{ g }}
+{% endfor %}{% endif %}
+{% endif %}
+{% if data.comps %}
+---
+
+## Competitor Gaps — top performers by demand
+
+{% if data.comps.top %}
+| Competitor | Config | Reviews | Occupancy |
+|---|---|---|---|
+{% for c in data.comps.top[:6] %}| {% if c.airbnb_url %}[{{ c.name }}]({{ c.airbnb_url }}){% else %}{{ c.name }}{% endif %} | {{ c.bedrooms }}BR · {{ c.guests }}g | {{ c.ratings.num_reviews }} · ★{{ c.ratings.rating_overall }} | {% if c.performance.ttm_occupancy %}{{ (c.performance.ttm_occupancy * 100) | round | int }}%{% endif %} |
+{% endfor %}
+{% endif %}
+{% if data.comps.amenity_gaps %}
+
+**Amenity gaps** (common among winners, missing/buried here): {{ data.comps.amenity_gaps | join(', ') }}
+{% endif %}
+{% if data.comps.title_patterns %}
+
+**Title patterns winners use:**
+{% for t in data.comps.title_patterns %}- {{ t }}
+{% endfor %}{% endif %}
+{% endif %}
+{% if data.funnel %}
+---
+
+## Funnel Diagnostic — {{ data.funnel.source }} (views = real traffic)
+
+{% if data.funnel.city_rank %}
+- **City rank:** #{{ data.funnel.city_rank.position }} of {{ data.funnel.city_rank.of }} (page {{ data.funnel.city_rank.page }})
+{% endif %}
+{% if data.funnel.views_monthly %}
+
+| Month | {{ data.funnel.views_monthly.keys()|list|join(' | ') }} |
+|---|{{ '---|' * (data.funnel.views_monthly|length) }}
+| **Listing views** (real traffic) | {{ data.funnel.views_monthly.values()|list|join(' | ') }} |
+{% if data.funnel.booking_rate_monthly %}
+| Booking rate | {{ data.funnel.booking_rate_monthly.values()|list|join(' | ') }} |
+{% endif %}
+{% endif %}
+
+{% if data.funnel.ctr_vs_similar %}_CTR {{ data.funnel.ctr_vs_similar.you }} vs {{ data.funnel.ctr_vs_similar.similar }} similar — {{ data.funnel.ctr_vs_similar.note }}_{% endif %}
+
+**Lever focus:** {{ data.funnel.lever_focus }}
+{{ data.funnel.diagnosis }}
+{% endif %}
+{% if data.occupancy %}
+
+---
+
+## Occupancy — Hospitable (live PMS · source of truth)
+
+- **Forward {{ data.occupancy.forward_days }} days:** {{ data.occupancy.forward_pct }}% occupancy · **{{ data.occupancy.upcoming_reservations }}** upcoming reservations
+{% if data.occupancy.monthly %}
+
+| Month | {{ data.occupancy.monthly.keys()|list|join(' | ') }} |
+|---|{{ '---|' * (data.occupancy.monthly|length) }}
+| Occupancy | {{ data.occupancy.monthly.values()|list|join(' | ') }} |
+{% endif %}
+{% if data.occupancy.rankbreeze_crosscheck %}
+_RankBreeze cross-check: **{{ data.occupancy.rankbreeze_crosscheck }}** — Hospitable is the source of truth._
+{% endif %}
+{% endif %}
+{% if data.diagnostics %}
+
+---
+
+## Diagnostics & Handoff
+
+{% if data.diagnostics.content_signal %}- **Content / CTR:** {{ data.diagnostics.content_signal }}
+{% endif %}{% if data.diagnostics.traffic_signal %}- **Traffic (views):** {{ data.diagnostics.traffic_signal }}
+{% endif %}{% if data.diagnostics.occupancy_signal %}- **Occupancy:** {{ data.diagnostics.occupancy_signal }}
+{% endif %}{% if data.diagnostics.likely_lever %}- **Likely lever:** {{ data.diagnostics.likely_lever }}
+{% endif %}
+
+{% if data.diagnostics.handoff %}
+**→ Handoff:** {{ data.diagnostics.handoff }}
+{% endif %}
+{% endif %}
+{% if data.cadence and data.cadence.due %}
+
+---
+
+## Refresh Cadence — What's Due
+
+| Item | Last done | Next due | Status |
+|---|---|---|---|
+{% for d in data.cadence.due %}| {{ d.item }} | {{ d.last }} | {{ d.due }} | {{ d.status }} |
+{% endfor %}
+{% endif %}
+---
+
+_{{ data.branding.company_name }} · {{ data.branding.tagline }} · {{ data.branding.website_url }}_
+_Paste-ready content only — a human enters it into Hospitable, which syncs to the channels. This tool never reads or changes your calendar._
