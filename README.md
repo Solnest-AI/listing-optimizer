@@ -21,7 +21,14 @@ plus a photo plan and a competitor-gap report. A human pastes the result into th
 
 ---
 
-## Setup
+## Quick start (easiest)
+
+Unzip this folder, open **Claude Code**, drag the folder into the chat, and say **"Set this up."**
+Claude will create the environment, ask for your API keys, connect your PMS, and verify the
+install (the playbook it follows is `CLAUDE.md` in this folder). Then just say
+*"optimize my [listing]."*
+
+## Manual setup
 
 1. **Python 3.10+** and a virtualenv:
    ```bash
@@ -44,8 +51,11 @@ plus a photo plan and a competitor-gap report. A human pastes the result into th
    ```bash
    cp branding.example.json branding.json   # then edit
    ```
-4. **Connect your PMS:** add the **Hospitable MCP** to Claude Code so the skill can read your
-   own listings. (RankBreeze MCP is optional, for funnel data.)
+4. **Connect your PMS — either way works:**
+   - **Hospitable MCP server** added to Claude Code, **or**
+   - **no MCP at all**: put a Hospitable Platform token in `.env` as `HOSPITABLE_TOKEN`
+     (my.hospitable.com → Apps → API access) — the bundled `scripts/hospitable_api.py`
+     reads your listings directly. (RankBreeze MCP is optional, for funnel data.)
 
 `.env`, `branding.json`, and `config/properties.json` are **gitignored** — they hold your keys/brand
 and never get committed or shared.

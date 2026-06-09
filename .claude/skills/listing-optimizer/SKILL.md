@@ -23,6 +23,7 @@ Optimizes one short-term-rental listing against the **ALE framework** (the engin
 - **Keys: project `.env`** (gitignored; see `.env.example`). `AIRROI_API_KEY` (comps) + `GEMINI_API_KEY` (photos). Both `airroi_client.py` and `analyze_photos.py` auto-load it.
 - **AirROI: vendored** in `scripts/airroi_client.py` — direct API calls, no external repo.
 - **Listings: discovered live from the connected PMS** (Hospitable `list_properties` → `get_property`). Nothing hardcoded. Optional per-user overrides in `config/properties.json` (gitignored; see `config/properties.example.json`).
+- **No Hospitable MCP? Use the bundled REST fallback** — `scripts/hospitable_api.py` (`properties`/`property`/`images`/`reviews`/`calendar`/`reservations`, needs `HOSPITABLE_TOKEN` in `.env`). Same read-only data as the MCP tools; its `calendar` subcommand strips price/min-stay at the source. Wherever this file names a `hospitable_*` MCP tool, the matching subcommand is an equivalent substitute.
 - **Branding:** `branding.json` (gitignored, per-user; falls back to `branding.example.json`).
 - Output base (while testing): `~/Desktop/Listing Optimizer/<listing-slug>/<YYYY-MM-DD>/` (override `--out-base`).
 - Working dir for intermediates: `output/<YYYY-MM-DD>/<listing-slug>/`.
