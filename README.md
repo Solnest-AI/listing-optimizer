@@ -73,9 +73,11 @@ and never get committed or shared.
 ## Usage
 
 In Claude Code, just ask: **"optimize my [listing]"** or **"run the listing optimizer."** It will:
-1. List your Hospitable properties and let you pick one (or "all").
-2. Pull the subject + comps + score the photos.
-3. Write the optimized copy + report to `~/Desktop/Listing Optimizer/<listing>/<date>/`
+1. Ask **what season you're getting ready for** (summer / winter / spring / fall / year-round) —
+   all copy and the photo plan get geared to it.
+2. List your properties from your PMS and let you pick one (or "all").
+3. Pull the subject + comps + score the photos.
+4. Write the optimized copy + report to `~/Desktop/Listing Optimizer/<listing>/<date>/`
    (`report.html`, `report.md`, `paste-block.txt`).
 
 Optional per-listing extras (e.g. a RankBreeze listing id) go in `config/properties.json`

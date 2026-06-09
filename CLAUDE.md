@@ -83,7 +83,9 @@ the step-5 properties check is the live verification.
 
 ### Step 8 — Confirm + teach usage
 Tell them setup is done and they can now say **"optimize my [listing name]"** or
-**"run the listing optimizer."** Reports land in `~/Desktop/Listing Optimizer/<listing>/<date>/`
+**"run the listing optimizer."** (First thing the optimizer does is ask **which season they're
+getting ready for** — copy and photo plan get geared to it.) Reports land in
+`~/Desktop/Listing Optimizer/<listing>/<date>/`
 as HTML + Markdown + a paste-ready block. On PMSs that support content writes, they can also
 say **"apply it"** after reviewing a run to push the new copy (Hospitable users paste manually
 — its API is read-only).

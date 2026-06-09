@@ -1,6 +1,6 @@
 ---
 name: listing-optimizer
-description: Optimize a short-term-rental listing against the ALE framework. Use when the user says "optimize [listing]", "run the listing optimizer", "refresh my [listing]", or wants paste-ready title/summary/"The Space"/photo-caption + comp-gap + photo-plan output for an Airbnb listing. Discovers the user's own listings from THEIR connected PMS (any PMS — Hospitable supported out of the box; Hostaway/Guesty/OwnerRez/Lodgify/Smoobu/etc. via their MCP or REST API per the data contract in CLAUDE.md), pulls the subject free from the PMS, comps from AirROI, scores photos with Gemini, and writes HTML+Markdown+paste-block to the Desktop. Never touches pricing. Paste-ready by default; on PMSs that support content writes it can apply the approved copy (opt-in, content-only — Hospitable is always paste-only).
+description: Optimize a short-term-rental listing against the ALE framework. Use when the user says "optimize [listing]", "run the listing optimizer", "refresh my [listing]", or wants paste-ready title/summary/"The Space"/photo-caption + comp-gap + photo-plan output for an Airbnb listing. ALWAYS starts by asking which season they're getting ready for (unless stated) and gears all copy + the photo plan to it. Discovers the user's own listings from THEIR connected PMS (any PMS — Hospitable supported out of the box; Hostaway/Guesty/OwnerRez/Lodgify/Smoobu/etc. via their MCP or REST API per the data contract in CLAUDE.md), pulls the subject free from the PMS, comps from AirROI, scores photos with Gemini, and writes HTML+Markdown+paste-block to the Desktop. Never touches pricing. Paste-ready by default; on PMSs that support content writes it can apply the approved copy (opt-in, content-only — Hospitable is always paste-only).
 ---
 
 # Listing Optimizer
@@ -40,6 +40,17 @@ Optimizes one short-term-rental listing against the **ALE framework** (the engin
 
 Set `SLUG`, `DATE` (today, YYYY-MM-DD), and the property's IDs/coords from **PMS discovery** (see "The listings" section below). Steps 1/1.6 name Hospitable tools as the reference — **substitute the user's own PMS source** (its MCP tools or REST API) per the CLAUDE.md data contract.
 Make the working dir: `output/<DATE>/<SLUG>/`.
+
+### 0. Ask which season they're getting ready for (ALWAYS, before pulling anything)
+Unless the user already said it in their request ("optimize X **for summer**"), ask first:
+> **"What season are you getting ready for — summer, winter, spring, fall, or year-round?"**
+
+If seasonal, also ask one follow-up: *"What are the big draws near you that season?"* (e.g. bike park, golf, lake, ski hill, festivals) — or infer them from the listing's location + comp titles and confirm. Then thread the season through the whole run:
+- **Copy (Step 4):** title/summary/"The Space"/captions lead with that season's draws and guests; the off-season becomes a one-line footnote, never the lead.
+- **Photos (Step 3 output):** prefer season-credible shots for hero + top order; if the gallery is the WRONG season (e.g. snow photos for a summer push), flag the seasonal reshoot as the **#1 action** and pick the most season-neutral shots as placeholders.
+- **Comps (Step 2):** read comp titles/amenities through the seasonal lens (what do winners in this market lead with in that season?).
+- **Cadence (Step 5):** mark `seasonal_swap` refreshed when the season changed the copy.
+- **Year-round:** skip the seasonal framing; optimize evergreen.
 
 ### 1. Pull subject — FREE, from the user's PMS (read-only; Hospitable shown as reference)
 Call these MCP tools and save each raw response into the working dir:
@@ -88,7 +99,7 @@ Read `subject.json`, `comps.json`, `photo_scores.json`, `reviews.json`, and `fun
 - **New "The Space"** — keyword-loaded, bullets-first, Success painted, all real amenities surfaced.
 - **Per-photo captions** for the recommended order (~2 sentences each, sell the moment, weave best review quotes).
 - **Amenity gaps**: amenities common among winning comps but missing/buried here.
-- **Seasonal note** for seasonal properties (`seasonal: true`) — emphasize the rotation (e.g. winter vs summer activities).
+- **Season (from Step 0):** every copy element is geared to the season the user named — lead with that season's draws/guests; off-season gets one line at most. For `seasonal: true` properties, name the rotation explicitly.
 - **Diagnostics & Handoff (B1 — qualitative, NO price numbers).** Synthesize content/CTR (RankBreeze) + traffic/views + occupancy (Hospitable = source of truth) + season into a *content-vs-rate/availability/seasonality* read. When content & CTR are strong but bookings/occupancy lag, say the booking gap is **not** a content problem and **hand off to a dedicated revenue/pricing tool** (e.g. a revenue-management skill or PriceLabs) for rate + availability. This section may use the words "pricing"/"revenue" (the report-only scan allows them) — but **never a price number and never a price recommendation**, and the paste content stays 100% price-free.
 Assemble all of this into `output/<DATE>/<SLUG>/result.json` (shape below). **No price numbers anywhere; no price recommendations.**
 
