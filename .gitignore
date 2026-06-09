@@ -5,6 +5,7 @@ config/properties.json
 
 # Private planning docs (not part of the distributable tool)
 LISTING-OPTIMIZER-BUILD-PLAN.md
+SKOOL-POST.md
 
 # Runtime / generated
 .venv/
