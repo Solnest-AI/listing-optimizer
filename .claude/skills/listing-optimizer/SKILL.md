@@ -22,6 +22,7 @@ Optimizes one short-term-rental listing against the **ALE framework** (the engin
 - `references/ale-rubric.md` — the engine + the scorecard you produce
 - `references/storybrand-sb7-rubric.md` — emotional layer for the copy
 - `references/photo-rubric.md` — what photos are scored against
+- `references/airbnb-field-limits.md` — **hard character caps + photo specs** every output must respect
 
 ## Environment (fully self-contained — nothing outside this folder but keys)
 - Python: `.venv/bin/python` (project venv; on Windows use `.venv\Scripts\python` — substitute throughout). Scripts live in `scripts/`. If no `.venv` exists yet, create it first: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`.
@@ -94,10 +95,10 @@ Gives per-photo scores + tags + `hero`, `recommended_top5_order`, `gaps`, `resho
 ### 4. Optimize — ALE + SB7 (your reasoning)
 Read `subject.json`, `comps.json`, `photo_scores.json`, `reviews.json`, and `funnel.json` (if it exists). Apply `ale-rubric.md` + `storybrand-sb7-rubric.md`. **If `funnel.json` exists, use it to TARGET levers** (ALE Layer 3): CTR low vs similar ⇒ fix **above-the-fold** (cover, title, hero); booking-after-click low ⇒ fix **below-the-fold** (top-5 depth, Summary, "The Space", reviews, amenities); don't over-rotate a lever the funnel shows already beats peers. Produce:
 - **ALE scorecard** (each dimension 0–5 + gap + fix), grounded in comp gaps + photo findings.
-- **New title** (~50 chars, Hero + #1 amenity; learn from comp title patterns).
-- **New ~500-char Summary** doing its 4 jobs in order (who → why → distance/location → CTA), SB7-shaped. Count the characters.
-- **New "The Space"** — keyword-loaded, bullets-first, Success painted, all real amenities surfaced.
-- **Per-photo captions** for the recommended order (~2 sentences each, sell the moment, weave best review quotes).
+- **New title** — **hard cap 50 chars, aim 32–45** (mobile truncates ~32; front-load the hook). Sentence case, no emojis, no repeated symbols (per `airbnb-field-limits.md`). Learn from comp title patterns. **Count the characters.**
+- **New Summary** — **hard cap 500 chars** doing its 4 jobs in order (who → why → distance/location → CTA), SB7-shaped, with the persuasive core in the **first ~295 chars** (the app's above-the-fold cut). **Count the characters** (`summary_char_count`).
+- **New "The Space"** — keyword-loaded, bullets-first, Success painted, all real amenities surfaced. Lead with the strongest content in the **first ~1,000 chars**; keep total ~1,500–2,500 (proven safe via PMS sync). No phone/email/URLs in any description field.
+- **Per-photo captions** for the recommended order (~2 sentences each, **≤250 chars per caption**, sell the moment, weave best review quotes).
 - **Amenity gaps**: amenities common among winning comps but missing/buried here.
 - **Season (from Step 0):** every copy element is geared to the season the user named — lead with that season's draws/guests; off-season gets one line at most. For `seasonal: true` properties, name the rotation explicitly.
 - **Diagnostics & Handoff (B1 — qualitative, NO price numbers).** Synthesize content/CTR (RankBreeze) + traffic/views + occupancy (Hospitable = source of truth) + season into a *content-vs-rate/availability/seasonality* read. When content & CTR are strong but bookings/occupancy lag, say the booking gap is **not** a content problem and **hand off to a dedicated revenue/pricing tool** (e.g. a revenue-management skill or PriceLabs) for rate + availability. This section may use the words "pricing"/"revenue" (the report-only scan allows them) — but **never a price number and never a price recommendation**, and the paste content stays 100% price-free.
@@ -134,7 +135,7 @@ Skip entirely unless the user asks (e.g. "apply it", "push it to my PMS") — an
 2. Show the user the exact fields you intend to write (title / summary / description / captions) and get an explicit **"yes, apply"** in this session.
 3. **Before-snapshot:** re-read the live listing and save it to `output/<DATE>/<SLUG>/before-writeback.json` — tell the user this is their undo.
 4. Apply via the PMS's content-update tool/endpoint, sending a payload built from scratch containing **only** the approved content fields. Never include rates, calendar, availability, min-stay, fees, or policies; never PUT a merged/full listing object back.
-5. Re-read the listing, confirm each field landed, and report exactly what changed. If anything looks wrong, offer to restore from the snapshot.
+5. Re-read the listing, confirm each field landed, and report exactly what changed. If anything looks wrong, offer to restore from the snapshot. **If the write "succeeded" but the re-read shows OLD content:** Airbnb's *locked fields* feature is probably blocking API updates (happens when the host edited that field directly on Airbnb) — see `references/airbnb-field-limits.md`; the user must unlock the field in their Airbnb PMS settings or paste manually.
 6. Mark the cadence items refreshed (already done in Step 5's flow) and remind them channel sync (Airbnb/VRBO) can take a little while.
 
 ---
