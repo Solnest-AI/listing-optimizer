@@ -46,7 +46,8 @@ except ValueError:
 
 def _token() -> str:
     # Defensive: strip inline "# comment" remnants some .env editors leave in values.
-    t = os.environ.get("HOSPITABLE_TOKEN", "").split("#")[0].strip()
+    # HOSPITABLE_API_KEY accepted as an alias for HOSPITABLE_TOKEN.
+    t = (os.environ.get("HOSPITABLE_TOKEN") or os.environ.get("HOSPITABLE_API_KEY") or "").split("#")[0].strip()
     if not t:
         sys.exit("[hospitable_api] HOSPITABLE_TOKEN not set. Create a Platform API token at "
                  "my.hospitable.com (Apps → API access) and put it in the project .env "
