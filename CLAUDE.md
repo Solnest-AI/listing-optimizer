@@ -14,9 +14,9 @@ below). Hospitable is always paste-only (its listing API is read-only).
 ## When the user says "set this up" (or similar), walk them through ALL of this — one step at a time, conversationally. Don't dump every step at once.
 
 ### Step 1 — Work in this folder
-If the session was started elsewhere and the user dragged this folder in, work at this folder's
-path — and tell them: *"For the skill to auto-load in future sessions, open Claude Code in this
-folder."*
+If the session was started elsewhere (the user dragged this folder in, or you just cloned this
+repo for them from the setup prompt), work at this folder's path — and tell them: *"For the
+skill to auto-load in future sessions, open Claude Code in this folder."*
 
 ### Step 2 — Python environment
 Create the venv + install dependencies (skip anything that already exists):

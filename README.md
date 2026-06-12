@@ -26,17 +26,24 @@ run and say *"apply it"* — Claude pushes the new copy after taking a backup sn
 
 ## Quick start (easiest)
 
-```bash
-git clone https://github.com/Solnest-AI/listing-optimizer.git
+Open **Claude Code** (in any folder) and paste this:
+
+```text
+Set up the Listing Optimizer from Solnest AI for me, one step at a time:
+1. Make sure git and Python 3.10+ are installed — help me install whatever's missing.
+2. Clone https://github.com/Solnest-AI/listing-optimizer.git into my home folder.
+3. Read the CLAUDE.md inside the cloned folder — it is the full setup playbook — and follow
+   it exactly: create the Python environment, install the dependencies, set up my .env,
+   walk me through getting my AirROI API key and my free Google Gemini API key, and connect
+   my property management system (or Airbnb-only mode if I don't have one).
+4. Run the test suite to verify, then show me how to run my first optimization.
+Do everything you can yourself instead of telling me to do it, and don't skip steps.
 ```
 
-Open **Claude Code** in that folder (or drag it into the chat) and say **"Set this up."**
-Claude will create the environment, ask for your API keys, connect your PMS, and verify the
-install (the playbook it follows is `CLAUDE.md` in this folder). Then just say
-*"optimize my [listing]."*
+Claude handles the whole install — clone, Python environment, dependencies, API keys, PMS —
+and verifies it at the end. Then just say *"optimize my [listing]."*
 
-(No git? Download the zip from the green **Code** button on GitHub instead — but cloning is
-better, because updating is then one command. See **Updating** below.)
+(Already cloned the repo yourself? Open Claude Code in that folder and say **"set this up."**)
 
 ## Manual setup
 
