@@ -45,6 +45,12 @@ and verifies it at the end. Then just say *"optimize my [listing]."*
 
 (Already cloned the repo yourself? Open Claude Code in that folder and say **"set this up."**)
 
+**No git / prefer a zip?** Download
+[the latest zip](https://github.com/Solnest-AI/listing-optimizer/archive/refs/heads/main.zip)
+(no GitHub account needed), unzip it, open **Claude Code** in that folder, and say
+**"set this up."** To update later, re-download and copy your `.env` across — or just ask
+Claude to switch you to git so updates become one command.
+
 ## Manual setup
 
 1. **Python 3.10+** and a virtualenv:
