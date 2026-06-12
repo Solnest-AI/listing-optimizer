@@ -26,10 +26,17 @@ run and say *"apply it"* — Claude pushes the new copy after taking a backup sn
 
 ## Quick start (easiest)
 
-Unzip this folder, open **Claude Code**, drag the folder into the chat, and say **"Set this up."**
+```bash
+git clone https://github.com/Solnest-AI/listing-optimizer.git
+```
+
+Open **Claude Code** in that folder (or drag it into the chat) and say **"Set this up."**
 Claude will create the environment, ask for your API keys, connect your PMS, and verify the
 install (the playbook it follows is `CLAUDE.md` in this folder). Then just say
 *"optimize my [listing]."*
+
+(No git? Download the zip from the green **Code** button on GitHub instead — but cloning is
+better, because updating is then one command. See **Updating** below.)
 
 ## Manual setup
 
@@ -82,6 +89,20 @@ In Claude Code, just ask: **"optimize my [listing]"** or **"run the listing opti
 
 Optional per-listing extras (e.g. a RankBreeze listing id) go in `config/properties.json`
 (see `config/properties.example.json`).
+
+---
+
+## Updating
+
+Improvements land in this repo. To pull the latest version into your folder:
+
+```bash
+git pull
+```
+
+(Or just ask Claude Code: *"update the listing optimizer."*) Your `.env`, `branding.json`, and
+`config/properties.json` are gitignored, so updates never touch your keys or settings. If you
+downloaded the zip instead of cloning, re-download and copy your `.env` across.
 
 ---
 
