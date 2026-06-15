@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import memory  # noqa: E402
-from render_report import PRICING_RE as RENDER_PRICING_RE  # noqa: E402
+from render_report import PRICE_NUMBER_RE as RENDER_PRICE_NUMBER_RE  # noqa: E402
 
 
 def _result(**overrides) -> dict:
@@ -40,7 +40,10 @@ def _result(**overrides) -> dict:
             "views_monthly": {"May": "186 views", "Jun": "39 views"},
             "booking_rate_monthly": {"Jun": "71.79%"},
             "ctr_vs_similar": {"you": "8.68%", "similar": "15.07%"},
-            "lever_focus": "above-the-fold (cover/hero photo + title)",
+            # lever_focus legitimately carries the qualitative handoff meta-words
+            # "revenue/pricing" (no numbers) — allowed, like in the rendered report.
+            "lever_focus": "above-the-fold (cover/hero + title); the booking gap is a "
+                           "rate/availability question — hand to a revenue/pricing tool",
             "diagnosis": "Page-1 ranked. Hand off to your revenue/pricing tool for $400 a night rates.",
         },
         "occupancy": {"forward_pct": 35.2, "monthly": {"Jun": "56%", "Jul": "61%"}},
@@ -50,9 +53,9 @@ def _result(**overrides) -> dict:
 
 
 # ── guardrail stays in sync with the renderer ────────────────────────────────
-def test_pricing_re_matches_render_report():
-    assert memory.PRICING_RE.pattern == RENDER_PRICING_RE.pattern, \
-        "memory.PRICING_RE drifted from render_report.PRICING_RE — keep them byte-identical."
+def test_price_guard_matches_render_report():
+    assert memory.PRICE_NUMBER_RE.pattern == RENDER_PRICE_NUMBER_RE.pattern, \
+        "memory.PRICE_NUMBER_RE drifted from render_report.PRICE_NUMBER_RE — keep them byte-identical."
 
 
 # ── summarize ────────────────────────────────────────────────────────────────
@@ -112,6 +115,22 @@ def test_assert_price_free_passes_clean_record():
 def test_assert_price_free_rejects_planted_price():
     bad = _result()
     bad["comps"] = {"amenity_gaps": ["Competitors charge $450 a night for this"]}
+    rec = memory.summarize(bad)
+    with pytest.raises(SystemExit):
+        memory.assert_price_free(rec)
+
+
+def test_assert_price_free_allows_handoff_metawords():
+    """The funnel lever_focus says 'revenue/pricing tool' (meta-words, no number) —
+    that must pass, exactly as the rendered report allows it."""
+    rec = memory.summarize(_result())
+    assert "revenue/pricing" in rec["funnel"]["lever_focus"]
+    memory.assert_price_free(rec)  # no raise
+
+
+def test_assert_price_free_rejects_price_number_in_kept_field():
+    bad = _result()
+    bad["funnel"]["lever_focus"] = "raise the floor to $300/night next season"
     rec = memory.summarize(bad)
     with pytest.raises(SystemExit):
         memory.assert_price_free(rec)

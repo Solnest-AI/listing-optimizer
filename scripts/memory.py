@@ -46,19 +46,22 @@ DEFAULT_HISTORY = ROOT / "state" / "history.jsonl"
 TABLE = "listing_optimizer_runs"
 
 # ── Zero-pricing guardrail ───────────────────────────────────────────────────
-# MUST stay byte-identical to render_report.py's PRICING_RE. tests/test_memory.py
+# The record is a REPORT-level artifact (it carries diagnostic-derived fields
+# like funnel.lever_focus, which legitimately say "hand off to a revenue/pricing
+# tool"). So it uses render_report.py's PRICE_NUMBER_RE — the same scan the
+# rendered report uses: it bars every price NUMBER / currency / rate from the DB
+# but ALLOWS the bare meta-words "pricing"/"revenue" in that qualitative handoff.
+# MUST stay byte-identical to render_report.py's PRICE_NUMBER_RE; tests/test_memory.py
 # imports both and asserts the patterns match, so they can never silently drift.
-PRICING_RE = re.compile(r"""(?ix)
+PRICE_NUMBER_RE = re.compile(r"""(?ix)
     (?:
-        \bpriced?\b | \bpricing\b | \badr\b | \brevpar\b | \brevenue\b
-      | \bper[\s-]?night\b | /\s*night\b
-      | \b(?:nightly|daily|average\s+daily)\s+rate\b | \brate\s*/\s*night\b
-      | \bmin(?:imum)?[\s-]?stay\b
-      | \bmin(?:imum)?\s+(?:\d+[\s-]?)?nights?\b
-      | \b\d+[\s-]?nights?\s+min(?:imum)?\b
-      | [$€£¥₹]\s?\d
+        [$€£¥₹]\s?\d
       | \b(?:USD|CAD|EUR|GBP|AUD|NZD|MXN)\s*\d
       | \b\d[\d,.]*\s*/\s*night\b
+      | \b\d[\d,.]*\s+per\s+night\b
+      | \b(?:nightly|daily|average\s+daily)\s+rate\b
+      | \b\d+[\s-]?nights?\s+min(?:imum)?\b
+      | \bmin(?:imum)?\s+(?:\d+[\s-]?)?nights?\b
       | \b\d[\d,.]*\s+(?:a|per)\s+(?:night|stay|nt)\b
       | \b\d[\d,.]*\s*(?:-|–|to)\s*\d[\d,.]*\s+(?:a\s+|per\s+|/\s*)?(?:night|stay|nightly)\b
       | \bdollars?\b
@@ -140,9 +143,10 @@ def summarize(result: dict, *, result_path: str | None = None, season: str | Non
 
 
 def assert_price_free(rec: dict) -> None:
-    """Refuse to persist a record that contains any price/rate/min-stay term."""
+    """Refuse to persist a record that contains any price NUMBER / currency / rate.
+    (Bare meta-words like 'pricing'/'revenue' are allowed — see PRICE_NUMBER_RE.)"""
     blob = json.dumps(rec, ensure_ascii=False)
-    hits = [m.group(0) for m in PRICING_RE.finditer(blob)]
+    hits = [m.group(0) for m in PRICE_NUMBER_RE.finditer(blob)]
     if hits:
         sys.stderr.write("[memory] ❌ ZERO-PRICING GUARDRAIL TRIPPED — refusing to store record.\n")
         for h in hits[:20]:
