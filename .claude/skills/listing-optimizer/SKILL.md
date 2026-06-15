@@ -17,6 +17,7 @@ Optimizes one short-term-rental listing against the **ALE framework** (the engin
    - **Calendar and pricing endpoints remain forbidden on every PMS, always** — reading availability for occupancy is fine; writing anything to a calendar is not.
 3. **ALE is the engine.** Photos + comps feed it; SB7 lives inside the copy.
 4. **Subject = Hospitable (free).** AirROI is used **only** for competitor comps — never for our own listing.
+5. **The memory record is price-free.** `memory.py` re-runs the same guardrail and refuses any record with a price/rate/min-stay term. And **NEVER hardcode a personal Supabase project ref / MCP name in the repo** — those live only in the gitignored `config/memory.json` (see `config/memory.example.json`).
 
 ## Reference rubrics (read before optimizing)
 - `references/ale-rubric.md` — the engine + the scorecard you produce
@@ -32,6 +33,7 @@ Optimizes one short-term-rental listing against the **ALE framework** (the engin
 - **Hospitable without an MCP: bundled REST fallback** — `scripts/hospitable_api.py` (`properties`/`property`/`images`/`reviews`/`calendar`/`reservations`, needs `HOSPITABLE_TOKEN` in `.env`). Same read-only data as the MCP tools; its `calendar` subcommand strips price/min-stay at the source. Wherever this file names a `hospitable_*` MCP tool, the matching subcommand is an equivalent substitute.
 - **No PMS at all (Airbnb only): external mode** — AirROI's `/listings?id=<airbnb_id>` returns the subject's live content AND `photo_urls` (full gallery), so comps + photo scoring + copy still run. No occupancy/calendar and shallow reviews without a PMS — omit those sections and say so in the report.
 - **Branding:** `branding.json` (gitignored, per-user; falls back to `branding.example.json`).
+- **Run-history memory (optional bonus):** `scripts/memory.py` records a compact PRICE-FREE summary of every run so the next one can compare (ALE trend, "title last changed N weeks ago", views/CTR movement). **Local layer is always on, zero setup** → appends to `state/history.jsonl` (gitignored). **Supabase layer is optional** — detect, in order: (1) `config/memory.json` naming a `supabase_mcp`; (2) else a single writable Supabase MCP in the session; (3) else `SUPABASE_URL`+`SUPABASE_SERVICE_KEY` in `.env` (REST path); (4) else skip with a friendly note (local history still saved). Same guardrail as the renderer — `memory.py` refuses any record with a price/rate/min-stay term.
 - Output base (while testing): `~/Desktop/Listing Optimizer/<listing-slug>/<YYYY-MM-DD>/` (override `--out-base`).
 - Working dir for intermediates: `output/<YYYY-MM-DD>/<listing-slug>/`.
 
@@ -75,6 +77,12 @@ The PMS's live calendar is the authoritative occupancy record; RankBreeze occupa
 - `.venv/bin/python scripts/occupancy.py --calendar calendar.json --reservations-count <N> --rankbreeze "Jun:0,Jul:0" --out occupancy.json`
 - Output = Hospitable forward occupancy (source of truth) + monthly + a RankBreeze cross-check verdict (`agree` / `DIVERGE — trust Hospitable` / `no overlap — cross-check skipped`). **Use Hospitable occupancy everywhere; cite RankBreeze only as the cross-check.** Drop `occupancy.json`'s `report_block` straight into `result.json` → `occupancy` (no hand-transform). Check the console "non-AVAILABLE reason breakdown" if booked nights appear — confirm none were mis-classified.
 
+### 1.7. Memory — read prior runs (baseline for the trend)
+Pull the last run(s) so Step 4 can compare and Step 7 can report a trend. Local is always available; Supabase is authoritative if connected.
+- **Local (always):** `.venv/bin/python scripts/memory.py prior --listing <SLUG>` → most-recent prior run(s) from `state/history.jsonl`. First-ever run returns `[]` — say "no prior run yet, this is the baseline" and continue.
+- **Supabase (if connected, per the detection ladder):** read authoritative history too — emit the SQL with `.venv/bin/python scripts/memory.py sql-prior --listing <SLUG>` and run it via the Supabase MCP's `execute_sql` (or, for the REST path, `.venv/bin/python scripts/memory.py prior --listing <SLUG> --rest`).
+- Surface from whichever you read: **prior ALE total, prior title, and prior funnel views/CTR** — these feed the comparison below.
+
 ### 2. Pull comps — AirROI (the ONLY paid call), price-free
 ```
 .venv/bin/python scripts/pull_comps.py \
@@ -102,6 +110,7 @@ Read `subject.json`, `comps.json`, `photo_scores.json`, `reviews.json`, and `fun
 - **Amenity gaps**: amenities common among winning comps but missing/buried here.
 - **Season (from Step 0):** every copy element is geared to the season the user named — lead with that season's draws/guests; off-season gets one line at most. For `seasonal: true` properties, name the rotation explicitly.
 - **Diagnostics & Handoff (B1 — qualitative, NO price numbers).** Synthesize content/CTR (RankBreeze) + traffic/views + occupancy (Hospitable = source of truth) + season into a *content-vs-rate/availability/seasonality* read. When content & CTR are strong but bookings/occupancy lag, say the booking gap is **not** a content problem and **hand off to a dedicated revenue/pricing tool** (e.g. a revenue-management skill or PriceLabs) for rate + availability. This section may use the words "pricing"/"revenue" (the report-only scan allows them) — but **never a price number and never a price recommendation**, and the paste content stays 100% price-free.
+- **Compare to the prior run (from Step 1.7):** note ALE movement (e.g. up/down/flat) and whether the title or "The Space" actually changed since last time; **don't re-suggest copy identical to what's already live** from the prior run — push it forward or leave it. If no prior run, this is the baseline.
 Assemble all of this into `output/<DATE>/<SLUG>/result.json` (shape below). **No price numbers anywhere; no price recommendations.**
 
 ### 5. Cadence — what's due
@@ -121,6 +130,23 @@ Merge `cadence.json`'s `due` array into `result.json` under `cadence.due`. After
 ```
 Writes `report.html`, `report.md`, `paste-block.txt` to `~/Desktop/Listing Optimizer/<SLUG>/<DATE>/`. **The render fails if any pricing/min-stay term is present** — fix the copy and re-run, never bypass with `--allow-pricing`.
 
+### 6.5. Memory — record this run
+Always write local history; mirror to Supabase only if connected. `memory.py` re-runs the zero-pricing guardrail and refuses a record with any price/rate/min-stay term.
+- **Local (always):**
+  ```
+  .venv/bin/python scripts/memory.py record \
+    --result output/<DATE>/<SLUG>/result.json \
+    --result-path output/<DATE>/<SLUG>/result.json \
+    --season <SEASON> [--applied] \
+    --cadence-marked title,photo_rotation,captions \
+    --out output/<DATE>/<SLUG>/record.json
+  ```
+  Pass `--applied` only if Step 8 actually pushed content this run. `--cadence-marked` mirrors what Step 5 refreshed.
+- **Supabase (if connected, per the detection ladder):**
+  1. Ensure the table exists: Supabase MCP `list_tables`; if `listing_optimizer_runs` is missing, apply `migrations/001_listing_optimizer_runs.sql` via the MCP `apply_migration` (one-time, in the user's own project).
+  2. `.venv/bin/python scripts/memory.py sql-upsert --record output/<DATE>/<SLUG>/record.json` → run the emitted SQL via the MCP `execute_sql` (or `.venv/bin/python scripts/memory.py rest-upsert --record output/<DATE>/<SLUG>/record.json` for the REST path).
+- **No Supabase:** print a one-line note — "run history saved locally to `state/history.jsonl`; connect a Supabase MCP (e.g. via the Revenue Manager) to sync it across devices."
+
 ### 7. Verify (every run)
 - `render_report.py` **already enforces** the zero-pricing guardrail — it refuses to write if any deliverable contains a pricing/min-stay term (no bypass flag exists). A successful render means the deliverables are clean.
 - Confirm the guardrail regex itself is intact: `.venv/bin/python tests/test_guardrail.py` → must print ✅.
@@ -128,6 +154,7 @@ Writes `report.html`, `report.md`, `paste-block.txt` to `~/Desktop/Listing Optim
   `grep -iEc 'pric(e|ed|ing)|adr|revpar|revenue|per[ -]?night|/night|nightly rate|daily rate|min(imum)?[ -]?stay|minimum night|[$€£¥][0-9]|(USD|CAD|EUR|GBP|AUD) ?[0-9]'`
 - Confirm only **read** PMS calls were made during the pipeline (writes happen only in Step 8, if at all).
 - Summarize for the user: ALE score, top 3 gaps, hero + top-5, occupancy (PMS vs RankBreeze), what's due, output path.
+- **Include a one-line trend vs the prior run** (from Step 1.7), e.g. "ALE 3.3 → 3.6 since 2026-06-08." First run: say it's the baseline.
 
 ### 8. OPTIONAL — Apply to the PMS (write-back; supported PMSs only, explicit approval required)
 Skip entirely unless the user asks (e.g. "apply it", "push it to my PMS") — and on **Hospitable, this step does not exist** (read-only API; the paste block is the path).
@@ -157,6 +184,8 @@ After building `result.json` (step 4) and **before** rendering, dispatch one ind
 {
   "listing": {"name":"", "slug":"", "city":"", "airbnb_url":""},
   "run_date": "YYYY-MM-DD",
+  "season": "",
+  "applied": false,
   "ale_scorecard": [{"dimension":"", "score":0, "gap":"", "fix":""}],
   "current": {"title":""},
   "optimized": {"title":"", "summary":"", "summary_char_count":0, "the_space":"",
@@ -195,6 +224,9 @@ For what the PMS can't tell us, the user MAY create `config/properties.json` (gi
 - `rankbreeze_id` → enables the optional funnel step (Step 1.5). Absent → **skip RankBreeze** for that listing.
 - `seasonal: true` → emphasize the seasonal rotation in the copy.
 - `notes` → free-text steer for the optimizer.
+
+### Optional memory override — `config/memory.json`
+Only needed if Supabase auto-detection needs help (e.g. multiple Supabase MCPs and you must name the writable one). Gitignored; see `config/memory.example.json`. Fields (all optional, default = auto-detect): `supabase_mcp` (name of the writable Supabase MCP), `supabase_project_ref` (the project ref). **Never commit this file** — a personal project ref / MCP name stays local.
 
 - **Measurement loop:** the RankBreeze funnel (if configured) is re-pullable each refresh — compare rank/CTR/booking-rate to the prior run.
 - **New-build mode:** if a property has no live listing/photos (unlisted, empty), build from scratch via the ALE rubric + comps; flag that photos/copy must be *created*, not refreshed.

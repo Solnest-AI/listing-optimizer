@@ -2,6 +2,7 @@
 .env
 branding.json
 config/properties.json
+config/memory.json
 
 # Private planning docs (not part of the distributable tool)
 LISTING-OPTIMIZER-BUILD-PLAN.md

@@ -1,0 +1,5 @@
+{
+  "supabase_mcp": null,
+  "supabase_project_ref": null,
+  "_comment": "Optional. Copy to config/memory.json (gitignored) only if auto-detection needs help — e.g. you have multiple Supabase MCPs and must name the writable one. Leave null to auto-detect."
+}

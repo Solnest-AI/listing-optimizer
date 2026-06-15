@@ -105,6 +105,18 @@ Optional per-listing extras (e.g. a RankBreeze listing id) go in `config/propert
 
 ---
 
+## Memory (optional)
+
+Every run is remembered locally — a compact, price-free summary lands in `state/history.jsonl`
+(gitignored) so the next run can show you the trend (ALE movement, title last changed, views/CTR).
+This is always on, zero setup. If you already have a **Supabase** MCP connected (for example from
+the Revenue Manager), the same record also syncs to a `listing_optimizer_runs` table — run
+`migrations/001_listing_optimizer_runs.sql` once in your own Supabase project (or let Claude apply
+it for you the first time). No Supabase? It just keeps the local history. The memory **never stores
+pricing** — it's scanned with the same zero-pricing guardrail as the reports.
+
+---
+
 ## Updating
 
 Improvements land in this repo. To pull the latest version into your folder:

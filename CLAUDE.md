@@ -80,6 +80,14 @@ the step-5 properties check is the live verification.
 - `cp branding.example.json branding.json` and edit → their brand on the reports.
 - `config/properties.example.json` → `config/properties.json` for per-listing extras
   (e.g. a RankBreeze id, `seasonal: true`).
+- **Run-memory is automatic — no setup needed.** Every run is remembered locally
+  (`state/history.jsonl`, gitignored) so the next run can show the trend (ALE movement,
+  views/CTR). If they already have a Supabase MCP connected (e.g. from the Revenue Manager),
+  the same price-free record auto-syncs to a `listing_optimizer_runs` table —
+  `migrations/001_listing_optimizer_runs.sql` is applied to **their own** Supabase project the
+  first time (Claude can do it via the MCP, or they run it once in the SQL editor). No Supabase?
+  It just keeps the local history. Only if auto-detection needs help (multiple Supabase MCPs)
+  do they copy `config/memory.example.json` → `config/memory.json` (gitignored).
 
 ### Step 8 — Confirm + teach usage
 Tell them setup is done and they can now say **"optimize my [listing name]"** or
@@ -129,6 +137,11 @@ data contract above.
 ## Invariants (do not bend these)
 
 - **Zero pricing** in any output — `render_report.py` enforces it and has no bypass.
+- **Memory records are price-free too** — `scripts/memory.py` scans every record with the same
+  guardrail as the renderer and refuses to write if a price/rate/min-stay term appears.
+- **The Supabase memory is OPTIONAL — never a hard dependency.** Local `state/history.jsonl` is
+  always the source of truth; if Supabase isn't connected the run still completes fully.
 - **Pricing/calendar/availability writes: never, on any PMS.** The only permitted writes are
   the Step-8 content write-back, under its rules (explicit approval, snapshot, content-only).
-- Keys live only in `.env` (gitignored). Never print or commit them.
+- Keys live only in `.env` (gitignored). Never print or commit them. **Never commit a personal
+  Supabase project ref / MCP name** — those live only in `config/memory.json` (gitignored).
