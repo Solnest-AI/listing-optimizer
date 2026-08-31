@@ -58,10 +58,12 @@ Claude to switch you to git so updates become one command.
    # macOS / Linux
    python3 -m venv .venv
    .venv/bin/pip install -r requirements.txt
+   .venv/bin/pip install -r requirements-dev.txt   # pytest, for the verify step below
 
    # Windows (PowerShell)
    py -m venv .venv
    .venv\Scripts\pip install -r requirements.txt
+   .venv\Scripts\pip install -r requirements-dev.txt
    ```
    (On Windows, wherever this README or the skill says `.venv/bin/python`, use `.venv\Scripts\python`.)
 2. **Keys** — copy the template and fill in your two keys:
@@ -134,7 +136,14 @@ downloaded the zip instead of cloning, re-download and copy your `.env` across.
 ## Tests
 
 ```bash
+.venv/bin/pip install -r requirements-dev.txt   # pytest, if you skipped it above
 .venv/bin/python -m pytest -q          # or: .venv/bin/python tests/test_guardrail.py
 ```
 The **zero-pricing guardrail** is the #1 invariant: the paste content is word-strict (no price/ADR/
 min-stay terms at all) and the report blocks any price number. Both are covered by the test suite.
+
+---
+
+## License
+
+MIT. See [LICENSE](LICENSE).

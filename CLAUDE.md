@@ -22,6 +22,8 @@ skill to auto-load in future sessions, open Claude Code in this folder."*
 Create the venv + install dependencies (skip anything that already exists):
 - macOS/Linux: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`
 - Windows: `py -m venv .venv` then `.venv\Scripts\pip install -r requirements.txt`
+- Then the dev deps, or step 6's `pytest` verify fails: `.venv/bin/pip install -r requirements-dev.txt`
+  (Windows: `.venv\Scripts\pip install -r requirements-dev.txt`)
 - If Python ≥3.10 isn't installed, point them to https://www.python.org/downloads first.
 
 Then create their secrets file: `cp .env.example .env` (Windows: `copy .env.example .env`).
