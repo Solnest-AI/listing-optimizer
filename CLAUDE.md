@@ -13,6 +13,48 @@ below). Hospitable is always paste-only (its listing API is read-only).
 
 ## When the user says "set this up" (or similar), walk them through ALL of this — one step at a time, conversationally. Don't dump every step at once.
 
+### Step 0 — FIRST: is this an install, or an update? (never skip this)
+
+"Set this up" gets said by two different people: someone installing for the first time, and
+someone who **already has it** and just wants the newest version. Decide which one you are
+looking at **before you clone anything.**
+
+**Check for an existing install.** Look in the current folder and in the user's home folder for
+a `listing-optimizer` directory containing `.claude/skills/listing-optimizer/SKILL.md`. If you
+genuinely cannot tell, ask: *"Have you set this up before?"*
+
+**A. No existing install → fresh install.** Clone the repo, then continue to Step 1.
+
+**B. Existing install WITH a `.git` folder → this is an UPDATE.**
+```bash
+cd <their folder> && git pull
+```
+That is the entire update. Then skip to **Step 6 (verify)**, tell them what changed, and stop.
+Do **not** re-clone, do **not** delete anything, and do **not** re-ask for their API keys —
+`.env` already has them and `git pull` cannot touch it.
+
+**C. Existing install with NO `.git` folder (they installed from the zip) → convert it in place**,
+which upgrades them and makes every future update a one-liner:
+```bash
+cd <their folder>
+git init -q
+git remote add origin https://github.com/Solnest-AI/listing-optimizer.git
+git fetch -q origin
+git reset -q --mixed origin/main    # point at upstream, leave their files alone
+git checkout -q -- .                # refresh tracked files only
+git branch -qM main && git branch -q --set-upstream-to=origin/main main
+```
+`.env`, `config/properties.json`, `branding.json`, `state/` and `output/` are gitignored, so
+this cannot touch their keys, RankBreeze ids, branding or cadence history. Confirm
+`.claude/skills/listing-optimizer/SKILL.md` grew and `git status` is clean, then go to Step 6.
+
+> ⛔ **Never `rm -rf` an existing install, and never clone a second copy beside it**
+> (`listing-optimizer-1`, `-main`, `-2`, a Downloads copy). The second copy is the silent
+> failure: the user keeps opening their original folder, never receives the update, and
+> re-enters API keys into a folder they never use. If `git clone` fails with *"destination path
+> already exists and is not an empty directory"*, that is not a blocked install — it is the
+> signal that you are in case **B** or **C** above.
+
 ### Step 1 — Work in this folder
 If the session was started elsewhere (the user dragged this folder in, or you just cloned this
 repo for them from the setup prompt), work at this folder's path — and tell them: *"For the

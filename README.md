@@ -26,16 +26,26 @@ run and say *"apply it"* — Claude pushes the new copy after taking a backup sn
 
 ## Quick start (easiest)
 
-Open **Claude Code** (in any folder) and paste this:
+> **Already have the Listing Optimizer installed?** You do **not** need to set it up again.
+> Open Claude Code in your existing folder and say **"update the listing optimizer"** (or just
+> run `git pull`). Your API keys and settings are untouched — see [Updating](#updating).
+> Installing a second copy is the one thing that goes wrong: you keep opening the old folder
+> and never actually get the update.
+
+**First time?** Open **Claude Code** (in any folder) and paste this:
 
 ```text
 Set up the Listing Optimizer from Solnest AI for me, one step at a time:
 1. Make sure git and Python 3.10+ are installed — help me install whatever's missing.
-2. Clone https://github.com/Solnest-AI/listing-optimizer.git into my home folder.
-3. Read the CLAUDE.md inside the cloned folder — it is the full setup playbook — and follow
-   it exactly: create the Python environment, install the dependencies, set up my .env,
-   walk me through getting my AirROI API key and my free Google Gemini API key, and connect
-   my property management system (or Airbnb-only mode if I don't have one).
+2. Check whether I already have a listing-optimizer folder (home folder or this one). If I do,
+   this is an UPDATE, not an install: update that folder in place, keep my .env and settings,
+   don't re-ask me for API keys, and never clone a second copy or delete the folder.
+   If I don't have one, clone https://github.com/Solnest-AI/listing-optimizer.git into my
+   home folder.
+3. Read the CLAUDE.md inside that folder — it is the full setup playbook — and follow
+   it exactly, starting at Step 0: create the Python environment, install the dependencies,
+   set up my .env, walk me through getting my AirROI API key and my free Google Gemini API
+   key, and connect my property management system (or Airbnb-only mode if I don't have one).
 4. Run the test suite to verify, then show me how to run my first optimization.
 Do everything you can yourself instead of telling me to do it, and don't skip steps.
 ```
