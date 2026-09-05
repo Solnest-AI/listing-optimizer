@@ -48,8 +48,40 @@ and verifies it at the end. Then just say *"optimize my [listing]."*
 **No git / prefer a zip?** Download
 [the latest zip](https://github.com/Solnest-AI/listing-optimizer/archive/refs/heads/main.zip)
 (no GitHub account needed), unzip it, open **Claude Code** in that folder, and say
-**"set this up."** To update later, re-download and copy your `.env` across — or just ask
-Claude to switch you to git so updates become one command.
+**"set this up."** Updating a zip install is manual and easy to get wrong — see below.
+
+## Updating
+
+**If you cloned with git (recommended)** — from the project folder:
+
+```bash
+git pull
+```
+
+That is the whole update. Your setup is untouched: `.env` (your AirROI, Gemini and PMS
+keys), `config/properties.json` (RankBreeze ids, seasonal flags, notes), `branding.json`,
+`state/` (your cadence history) and `output/` (past runs) are all **gitignored**, so git
+never overwrites, reverts or deletes them. Only the skill and scripts update. Your MCP
+connections (PMS, RankBreeze) live in your Claude Code config outside this folder and are
+not touched either.
+
+If `git pull` complains that local changes would be overwritten, you edited a shipped file.
+`git stash && git pull && git stash pop` keeps your edit; `git checkout -- <file> && git pull`
+discards it. Neither can touch the gitignored files above.
+
+**If you installed from the zip** — re-download, unzip to a *new* folder, then copy these
+across from your old folder before deleting it:
+
+```
+.env                      your API keys (AirROI, Gemini, PMS token)
+config/properties.json    RankBreeze ids, seasonal flags, per-listing notes
+branding.json             your report branding
+state/                    cadence history (what's due, what you last refreshed)
+```
+
+Then recreate the venv in the new folder (`python3 -m venv .venv && .venv/bin/pip install -r
+requirements.txt`). Miss any of the four and you silently lose that setup. This is why git is
+worth the one-time switch — ask Claude to "switch me to git" and it will move you over.
 
 ## Manual setup
 

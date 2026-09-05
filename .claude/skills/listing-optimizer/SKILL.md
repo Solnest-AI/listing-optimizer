@@ -56,10 +56,13 @@ If seasonal, also ask one follow-up: *"What are the big draws near you that seas
 - **Year-round:** skip the seasonal framing; optimize evergreen.
 
 ### 1. Pull subject — FREE, from the user's PMS (read-only; Hospitable shown as reference)
-Call these MCP tools and save each raw response into the working dir:
-- `hospitable_get_property` (propertyId, `include: "listings"`) → `subject.json` (title=`public_name`, `summary`, `description`="The Space", `amenities`, `capacity`, `room_details`, `house_rules`, `address.coordinates`).
-- `hospitable_get_property_images` (propertyId) → `images.json` (URLs + existing captions + order).
-- `hospitable_list_reviews` (property_id) → `reviews.json` (full text + per-category `detailed_ratings` + which are unanswered). Page through `meta.last_page`.
+Save each raw response into the working dir as a **file**. These files are pipeline inputs, not reading material — Step 4 reads a digest of them, never the raw JSON.
+
+> ⚠️ **Token wall — read this before you pull anything.** Every raw JSON payload you pull through an MCP tool lands in context and is then re-sent on **every remaining turn** of the run. A single `list_properties` response can be 120k+ characters; landing it once at turn 3 of a 90-turn run costs ~30k tokens ninety times over. **Prefer the bundled script path** (`scripts/hospitable_api.py … --out <file>`), which writes the identical JSON straight to disk and prints one summary line. Use MCP tools only for what the script cannot do, and never paste, echo, or `cat` a raw pipeline JSON file into the conversation.
+
+- `subject.json` — `.venv/bin/python scripts/hospitable_api.py property --property-id <UUID> --out output/<DATE>/<SLUG>/subject.json` (or `hospitable_get_property` with `include: "listings"`). Carries title=`public_name`, `summary`, `description`="The Space", `amenities`, `capacity`, `room_details`, `house_rules`, `address.coordinates`.
+- `images.json` — `… hospitable_api.py images --property-id <UUID> --out output/<DATE>/<SLUG>/images.json` (or `hospitable_get_property_images`). URLs + existing captions + order.
+- `reviews.json` — `… hospitable_api.py reviews --property-id <UUID> --out output/<DATE>/<SLUG>/reviews.json` (or `hospitable_list_reviews`). **Cap at the 20 most recent. Do NOT page through `meta.last_page`.** Full review history is 150+ reviews / ~285KB on an established listing, and none of it past the recent window changes the copy. If you are on the MCP path, request page 1 only and stop; Step 4's digest enforces the 20-review cap regardless of what landed on disk.
 
 ### 1.5. Pull funnel — RankBreeze (OPTIONAL diagnostic)
 RankBreeze gives **ALE Layer-3 funnel data nothing else has**: search-rank position + 1st-page impressions + CTR + booking rate, all **vs similar listings**. **Optional — never a hard dependency:**
@@ -101,7 +104,54 @@ Gives top comps ranked by **demand** (nights booked / occupancy / reviews — ne
 Gives per-photo scores + tags + `hero`, `recommended_top5_order`, `gaps`, `reshoot`, `restage`. (If no Gemini key, it writes a native-fallback manifest — then score the listed URLs yourself against `photo-rubric.md`.)
 
 ### 4. Optimize — ALE + SB7 (your reasoning)
-Read `subject.json`, `comps.json`, `photo_scores.json`, `reviews.json`, and `funnel.json` (if it exists). Apply `ale-rubric.md` + `storybrand-sb7-rubric.md`. **If `funnel.json` exists, use it to TARGET levers** (ALE Layer 3): CTR low vs similar ⇒ fix **above-the-fold** (cover, title, hero); booking-after-click low ⇒ fix **below-the-fold** (top-5 depth, Summary, "The Space", reviews, amenities); don't over-rotate a lever the funnel shows already beats peers. Produce:
+**First, build the digest — then read ONLY the digest.** The raw pipeline files total ~350KB (~89k tokens) on a real listing and would be re-sent on every remaining turn. This collapses them to ~18KB (~4.5k tokens), a 20x cut, with no loss the rubrics care about. Run it verbatim from the project root:
+
+```bash
+.venv/bin/python - output/<DATE>/<SLUG> <<'PYEOF'
+import json,sys,ast,pathlib
+REVIEW_CAP=20
+d=pathlib.Path(sys.argv[1]); R=lambda n:(json.loads((d/n).read_text()) if (d/n).exists() else None)
+def lit(s):
+    if isinstance(s,dict): return s
+    try: return ast.literal_eval(s) if isinstance(s,str) else {}
+    except Exception: return {}
+o=[]; A=o.append
+s=(R("subject.json") or {}).get("data") or {}
+A("# SUBJECT\n"+json.dumps({k:s.get(k) for k in("name","public_name","summary","description","amenities","capacity","room_details","house_rules")},ensure_ascii=False)[:6000])
+A("address: "+json.dumps(s.get("address") or {},ensure_ascii=False)[:400])
+c=R("comps.json") or {}
+A("\n# COMPS (ranked by demand; no pricing)")
+for t in (c.get("top_comps") or [])[:10]:
+    r=t.get("ratings") or {}; p=t.get("performance") or {}
+    A(f"- {t.get('name','')[:70]} | {t.get('bedrooms')}br/{t.get('baths')}ba/{t.get('guests')}g | {r.get('rating_overall')}* ({r.get('num_reviews')}rev) | occ {p.get('ttm_occupancy')}")
+A("title_samples: "+json.dumps(c.get("comp_title_samples") or [],ensure_ascii=False)[:900])
+A("market_amenity_freq(top30): "+", ".join(f"{a['amenity']}={a['pct']}%" for a in (c.get("market_amenity_frequency") or [])[:30]))
+p=R("photo_scores.json") or {}
+A(f"\n# PHOTOS hero={p.get('hero')} top5={p.get('recommended_top5_order')} reshoot={p.get('reshoot')} restage={p.get('restage')}")
+A("gaps: "+json.dumps(p.get("gaps") or [],ensure_ascii=False))
+for ph in (p.get("photos") or []):
+    A(f"- #{ph.get('order')} avg={ph.get('avg')} {str(ph.get('subject'))[:60]} | flags={ph.get('flags')} | cap={str(ph.get('caption') or '')[:60]}")
+rv=(R("reviews.json") or {}).get("data") or []
+A(f"\n# REVIEWS ({min(len(rv),REVIEW_CAP)} most recent of {len(rv)})")
+cat={}; un=0
+for r in rv:
+    for dr in (lit(r.get("private")).get("detailed_ratings") or []): cat.setdefault(dr.get("type"),[]).append(dr.get("rating"))
+    if not r.get("responded_at"): un+=1
+for r in sorted(rv,key=lambda x:str(x.get("reviewed_at")),reverse=True)[:REVIEW_CAP]:
+    pub=lit(r.get("public"))
+    A(f"- {str(r.get('reviewed_at'))[:10]} {pub.get('rating')}* {str(pub.get('review') or '')[:320]}")
+A("category_avgs(all): "+json.dumps({k:round(sum(v)/len(v),2) for k,v in cat.items() if v}))
+A(f"unanswered_reviews(all): {un}")
+for n,t in (("funnel.json","FUNNEL"),("occupancy.json","OCCUPANCY")):
+    x=R(n)
+    if x: A(f"\n# {t}\n"+json.dumps(x,ensure_ascii=False)[:1500])
+out=d/"digest.md"; out.write_text("\n".join(o),encoding="utf-8")
+raw=sum((d/f).stat().st_size for f in ("subject.json","comps.json","photo_scores.json","reviews.json") if (d/f).exists())
+print(f"[digest] {out} ({out.stat().st_size} B from {raw} B raw)")
+PYEOF
+```
+
+Then **Read `output/<DATE>/<SLUG>/digest.md` and nothing else.** Do not also Read `subject.json`, `comps.json`, `photo_scores.json`, `reviews.json`, `images.json` or `calendar.json` — the digest already carries every field the rubrics score, review text is capped at the 20 most recent (category averages and the unanswered count are still computed across the full set), and re-reading a raw file undoes the entire saving. Only go back to a raw file if the digest is visibly missing something you need, and then read just that file. Apply `ale-rubric.md` + `storybrand-sb7-rubric.md`. **If `funnel.json` exists, use it to TARGET levers** (ALE Layer 3): CTR low vs similar ⇒ fix **above-the-fold** (cover, title, hero); booking-after-click low ⇒ fix **below-the-fold** (top-5 depth, Summary, "The Space", reviews, amenities); don't over-rotate a lever the funnel shows already beats peers. Produce:
 - **ALE scorecard** (each dimension 0–5 + gap + fix), grounded in comp gaps + photo findings.
 - **New title** — **hard cap 50 chars, aim 32–45** (mobile truncates ~32; front-load the hook). Sentence case, no emojis, no repeated symbols (per `airbnb-field-limits.md`). Learn from comp title patterns. **Count the characters.**
 - **New Summary** — **hard cap 500 chars** doing its 4 jobs in order (who → why → distance/location → CTA), SB7-shaped, with the persuasive core in the **first ~295 chars** (the app's above-the-fold cut). **Count the characters** (`summary_char_count`).
@@ -169,10 +219,18 @@ Skip entirely unless the user asks (e.g. "apply it", "push it to my PMS") — an
 
 ## Modes — single vs multi-agent
 
-**Default = single agent.** One listing runs the whole pipeline above in this one session. The expensive parallel work (photo scoring, comp fetch) is already concurrent *inside* the scripts, and the ALE optimization is sharper with subject + comps + photos + reviews all in one context. Do **not** split a single listing across subagents.
+**The rule is the listing COUNT, not the wording of the request. Count the listings first, before you pull anything:**
 
-**Batch mode (multi-agent fan-out) — when the user says "optimize all my listings" / "refresh everything":**
-Dispatch one subagent per discovered listing **in parallel** (Agent tool, `general-purpose`), each told: *"Run the listing-optimizer SKILL for slug `<SLUG>` only; follow every step and hard rule; write to the Desktop; report back ALE score + top 3 gaps + output path."* Each subagent is isolated, hits Hospitable read-only, makes exactly one AirROI call, and writes its own `~/Desktop/Listing Optimizer/<slug>/<date>/`. Collect the summaries. This is the real throughput win; routine single-listing refreshes stay single-agent.
+| Listings in this request | Mode |
+|---|---|
+| **exactly 1** | single agent, run the pipeline inline |
+| **2 or more** | **fan out — one subagent per listing, always** |
+
+**ONE listing = single agent.** The whole pipeline runs in this session. The expensive parallel work (photo scoring, comp fetch) is already concurrent *inside* the scripts, and the ALE optimization is sharper with subject + comps + photos + reviews in one context. Do **not** split a single listing across subagents.
+
+**TWO OR MORE listings = batch mode, mandatory.** This is not opt-in and it is not gated on any particular phrasing. "Optimize all my listings", "refresh everything", "run it on these three", "do the cabin and the condo", or three slugs pasted in a row all trigger it identically. Dispatch one subagent per listing **in parallel** (Agent tool, `general-purpose`), each told: *"Run the listing-optimizer SKILL for slug `<SLUG>` only; follow every step and hard rule; write to the Desktop; report back ALE score + top 3 gaps + output path."* Each subagent is isolated, hits the PMS read-only, makes exactly one AirROI call, and writes its own `~/Desktop/Listing Optimizer/<slug>/<date>/`. Collect the summaries and report them together.
+
+> ⚠️ **Never run multiple listings sequentially in one context.** Each listing costs roughly 30 turns. Run back-to-back in a single session, listing 2 carries all of listing 1's accumulated output on every one of its turns, and listing 3 carries both — the cost grows with the square of the listing count, not linearly. Fanning out keeps each listing's context private and flat. If the user explicitly tells you not to use subagents, do the listings in **separate sessions** instead and say so; do not silently chain them into one context.
 
 **Optional adversarial QA pass — opt-in ("…with QA" / high-stakes listing):**
 After building `result.json` (step 4) and **before** rendering, dispatch one independent subagent to critique the copy against `ale-rubric.md` + `storybrand-sb7-rubric.md` + the zero-pricing rule (prompt it to *find problems*, not to approve). Apply its fixes, then render. Catches the model rubber-stamping its own draft. Off by default to keep routine runs cheap.
