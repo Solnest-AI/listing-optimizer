@@ -48,40 +48,8 @@ and verifies it at the end. Then just say *"optimize my [listing]."*
 **No git / prefer a zip?** Download
 [the latest zip](https://github.com/Solnest-AI/listing-optimizer/archive/refs/heads/main.zip)
 (no GitHub account needed), unzip it, open **Claude Code** in that folder, and say
-**"set this up."** Updating a zip install is manual and easy to get wrong — see below.
-
-## Updating
-
-**If you cloned with git (recommended)** — from the project folder:
-
-```bash
-git pull
-```
-
-That is the whole update. Your setup is untouched: `.env` (your AirROI, Gemini and PMS
-keys), `config/properties.json` (RankBreeze ids, seasonal flags, notes), `branding.json`,
-`state/` (your cadence history) and `output/` (past runs) are all **gitignored**, so git
-never overwrites, reverts or deletes them. Only the skill and scripts update. Your MCP
-connections (PMS, RankBreeze) live in your Claude Code config outside this folder and are
-not touched either.
-
-If `git pull` complains that local changes would be overwritten, you edited a shipped file.
-`git stash && git pull && git stash pop` keeps your edit; `git checkout -- <file> && git pull`
-discards it. Neither can touch the gitignored files above.
-
-**If you installed from the zip** — re-download, unzip to a *new* folder, then copy these
-across from your old folder before deleting it:
-
-```
-.env                      your API keys (AirROI, Gemini, PMS token)
-config/properties.json    RankBreeze ids, seasonal flags, per-listing notes
-branding.json             your report branding
-state/                    cadence history (what's due, what you last refreshed)
-```
-
-Then recreate the venv in the new folder (`python3 -m venv .venv && .venv/bin/pip install -r
-requirements.txt`). Miss any of the four and you silently lose that setup. This is why git is
-worth the one-time switch — ask Claude to "switch me to git" and it will move you over.
+**"set this up."** Updating a zip install is manual and easy to get wrong — see
+[Updating](#updating).
 
 ## Manual setup
 
@@ -153,15 +121,38 @@ pricing** — it's scanned with the same zero-pricing guardrail as the reports.
 
 ## Updating
 
-Improvements land in this repo. To pull the latest version into your folder:
+Improvements land in this repo. **If you cloned with git (recommended)**, from the project folder:
 
 ```bash
 git pull
 ```
 
-(Or just ask Claude Code: *"update the listing optimizer."*) Your `.env`, `branding.json`, and
-`config/properties.json` are gitignored, so updates never touch your keys or settings. If you
-downloaded the zip instead of cloning, re-download and copy your `.env` across.
+(Or just ask Claude Code: *"update the listing optimizer."*) That is the whole update, and your
+setup survives it untouched: `.env` (your AirROI, Gemini and PMS keys), `config/properties.json`
+(RankBreeze ids, seasonal flags, per-listing notes), `branding.json`, `state/` (your cadence
+history) and `output/` (past runs) are all **gitignored**, so git never overwrites, reverts or
+deletes them. Only the shipped skill, scripts and docs update. Your MCP connections (PMS,
+RankBreeze, Supabase) live in your Claude Code config *outside* this folder and are not touched
+either.
+
+If `git pull` says local changes would be overwritten, you edited a shipped file:
+`git stash && git pull && git stash pop` keeps your edit, `git checkout -- <file> && git pull`
+discards it. Neither can touch the gitignored files above.
+
+**If you installed from the zip**, re-download, unzip to a *new* folder, then carry these four
+across from the old folder before you delete it:
+
+```
+.env                      your API keys (AirROI, Gemini, PMS token)
+config/properties.json    RankBreeze ids, seasonal flags, per-listing notes
+branding.json             your report branding
+state/                    cadence history (what's due, what you last refreshed)
+```
+
+Then rebuild the venv in the new folder (`python3 -m venv .venv`, then
+`.venv/bin/pip install -r requirements.txt -r requirements-dev.txt`). Miss any of the four and
+you silently lose that setup, which is why git is worth the one-time switch — ask Claude to
+*"switch me to git"* and it will move you over.
 
 ---
 
