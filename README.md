@@ -1,182 +1,153 @@
 # Listing Optimizer
 
-A Claude Code skill that optimizes your short-term-rental listings against the **ALE framework**
-(Amenities · Location · Experiences) + StoryBrand SB7. It discovers your listings from your
-connected PMS, evaluates your photos, compares you to the top performers in your market, and
-writes **paste-ready** copy — new title, 500-char summary, "The Space", and per-photo captions —
-plus a photo plan and a competitor-gap report. A human pastes the result into the PMS.
+A local Claude Code skill for short-term-rental listing audits and draft improvements.
+It combines the ALE framework (Amenities, Location, Experiences), StoryBrand copy,
+competitor evidence and photo scoring. Outputs are an HTML report, Markdown report
+and paste-ready title, summary, description and captions.
 
-**It never touches pricing, calendars, or availability.** Output is paste-ready by default;
-on PMSs that support content updates (Hostaway, Guesty, OwnerRez, Lodgify, …) you can review a
-run and say *"apply it"* — Claude pushes the new copy after taking a backup snapshot.
-(Hospitable is paste-only: its listing API is read-only.)
+Hospitable collection is built in. Other PMSs can supply the same staged JSON contract
+through their read tools. This MVP does not ship a hosted UI or automatic PMS publishing.
+It never writes pricing, calendars, availability, fees or stay restrictions.
 
----
+## Start here
 
-## What it uses
+Open Claude Code in your existing Listing Optimizer folder and say:
 
-| Step | Source | Notes |
-|---|---|---|
-| Your listings + subject content + reviews + occupancy | **Your PMS** | Free, read-only. Listings discovered live — nothing hardcoded. **Hospitable works out of the box** (just a token); Hostaway / Guesty / OwnerRez / Lodgify / Smoobu / others connect via their MCP server or API token. No PMS? Airbnb-only mode works from your listing URL. |
-| Competitor comps | **AirROI API** | The only paid call. Needs `AIRROI_API_KEY`. |
-| Photo scoring (hero + top-5) | **Google Gemini API** | Needs `GEMINI_API_KEY` (free tier OK). Scores each photo 0–5 on quality + ALE fit. |
-| Funnel (rank/CTR/views) — optional | **RankBreeze MCP** | Optional connector; skipped if not configured. |
+> Review the setup instructions in CLAUDE.md, configure any missing dependencies,
+> and run the tests. Preserve my existing keys, settings, history and reports.
 
----
+Then ask **"Optimize my [listing] for [season]."** The agent discovers your properties,
+collects evidence, writes the copy and renders the reports. It asks only for missing
+information. The agent's reasoning runs in your Claude Code session; there is no separate
+text-generation API key required by these scripts.
 
-## Quick start (easiest)
+New install:
 
-> **Already have the Listing Optimizer installed?** You do **not** need to set it up again.
-> Open Claude Code in your existing folder and say **"update the listing optimizer"** (or just
-> run `git pull`). Your API keys and settings are untouched — see [Updating](#updating).
-> Installing a second copy is the one thing that goes wrong: you keep opening the old folder
-> and never actually get the update.
-
-**First time?** Open **Claude Code** (in any folder) and paste this:
-
-```text
-Set up the Listing Optimizer from Solnest AI for me, one step at a time:
-1. Make sure git and Python 3.10+ are installed — help me install whatever's missing.
-2. Check whether I already have a listing-optimizer folder (home folder or this one). If I do,
-   this is an UPDATE, not an install: update that folder in place, keep my .env and settings,
-   don't re-ask me for API keys, and never clone a second copy or delete the folder.
-   If I don't have one, clone https://github.com/Solnest-AI/listing-optimizer.git into my
-   home folder.
-3. Read the CLAUDE.md inside that folder — it is the full setup playbook — and follow
-   it exactly, starting at Step 0: create the Python environment, install the dependencies,
-   set up my .env, walk me through getting my AirROI API key and my free Google Gemini API
-   key, and connect my property management system (or Airbnb-only mode if I don't have one).
-4. Run the test suite to verify, then show me how to run my first optimization.
-Do everything you can yourself instead of telling me to do it, and don't skip steps.
+```bash
+git clone https://github.com/Solnest-AI/listing-optimizer.git
+cd listing-optimizer
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-Claude handles the whole install — clone, Python environment, dependencies, API keys, PMS —
-and verifies it at the end. Then just say *"optimize my [listing]."*
+Use Python 3.10+. On Windows, create the environment with `py -m venv .venv` and use
+`.venv\Scripts\python` / `.venv\Scripts\pip` in the commands.
 
-(Already cloned the repo yourself? Open Claude Code in that folder and say **"set this up."**)
+Create `.env` from `.env.example` **only if it does not already exist**, then configure:
 
-**No git / prefer a zip?** Download
-[the latest zip](https://github.com/Solnest-AI/listing-optimizer/archive/refs/heads/main.zip)
-(no GitHub account needed), unzip it, open **Claude Code** in that folder, and say
-**"set this up."** Updating a zip install is manual and easy to get wrong — see
-[Updating](#updating).
+| Configuration | Purpose |
+|---|---|
+| `HOSPITABLE_TOKEN` | Read your property content, photos, reviews and availability. `HOSPITABLE_API_KEY` is also accepted. |
+| `AIRROI_API_KEY` | Competitor data. Obtain through [AirROI developer access](https://www.airroi.com/api/developer/activate). |
+| `GEMINI_API_KEY` | Photo scoring. Obtain through [Google AI Studio](https://aistudio.google.com/apikey). Access and quotas depend on your account. |
 
-## Manual setup
+API keys and personal files are gitignored. Do not paste them into reports or commit them.
+Optional: copy `branding.example.json` to `branding.json` and
+`config/properties.example.json` to `config/properties.json`, preserving existing files.
+RankBreeze is optional and requires its separately connected MCP tools.
 
-1. **Python 3.10+** and a virtualenv:
-   ```bash
-   # macOS / Linux
-   python3 -m venv .venv
-   .venv/bin/pip install -r requirements.txt
-   .venv/bin/pip install -r requirements-dev.txt   # pytest, for the verify step below
+## One-command gathering
 
-   # Windows (PowerShell)
-   py -m venv .venv
-   .venv\Scripts\pip install -r requirements.txt
-   .venv\Scripts\pip install -r requirements-dev.txt
-   ```
-   (On Windows, wherever this README or the skill says `.venv/bin/python`, use `.venv\Scripts\python`.)
-2. **Keys** — copy the template and fill in your two keys:
-   ```bash
-   cp .env.example .env
-   #   AIRROI_API_KEY=...   (https://www.airroi.com/api/developer/activate)
-   #   GEMINI_API_KEY=...   (Google AI Studio)
-   ```
-3. **Branding** (optional) — your company name/colors on the report:
-   ```bash
-   cp branding.example.json branding.json   # then edit
-   ```
-4. **Connect your PMS:**
-   - **Hospitable** (easiest): put a Platform token in `.env` as `HOSPITABLE_TOKEN`
-     (my.hospitable.com → Apps → API access) — the bundled `scripts/hospitable_api.py`
-     reads your listings directly. No MCP server needed.
-   - **Any other PMS** (Hostaway, Guesty, OwnerRez, Lodgify, Smoobu, …): connect its MCP
-     server to Claude Code, or put its API token in `.env` (`PMS_NAME=` / `PMS_TOKEN=`) and
-     Claude reads it via that PMS's API — read-only either way.
-   - **No PMS:** Airbnb-only mode — Claude pulls your listing + photos via AirROI from your
-     Airbnb URL (no occupancy data in this mode).
-   (RankBreeze MCP is optional, for funnel data.)
+```bash
+.venv/bin/python scripts/run_pipeline.py --slug my-cabin --date 2026-09-20 --property-id HOSPITABLE_UUID
+```
 
-`.env`, `branding.json`, and `config/properties.json` are **gitignored** — they hold your keys/brand
-and never get committed or shared.
+Use the actual run date. The command creates `output/<date>/<slug>/digest.md` and
+`pipeline_status.json`. The agent reads that compact digest, writes `result.json`, and runs:
 
----
+```bash
+.venv/bin/python scripts/render_report.py --data output/<date>/<slug>/result.json --workdir output/<date>/<slug> --listing-slug <slug> --date <date>
+```
 
-## Usage
+Reports land in `~/Desktop/Listing Optimizer/<slug>/<date>/`. The renderer validates copy
+lengths, blocks pricing content and shows missing data and incomplete photo coverage.
+It merges measured facts directly from files so the agent does not copy them by hand.
 
-In Claude Code, just ask: **"optimize my [listing]"** or **"run the listing optimizer."** It will:
-1. Ask **what season you're getting ready for** (summer / winter / spring / fall / year-round) —
-   all copy and the photo plan get geared to it.
-2. List your properties from your PMS and let you pick one (or "all").
-3. Pull the subject + comps + score the photos.
-4. Write the optimized copy + report to `~/Desktop/Listing Optimizer/<listing>/<date>/`
-   (`report.html`, `report.md`, `paste-block.txt`).
+For another PMS, stage `subject.json`, `images.json` and optional reviews/calendar files
+in the working directory, then omit `--property-id`. The exact contract is in
+[the skill](.claude/skills/listing-optimizer/SKILL.md). A non-Hospitable ID must never be
+passed to the Hospitable flag. An Airbnb URL alone has no bundled importer in this MVP.
 
-Optional per-listing extras (e.g. a RankBreeze listing id) go in `config/properties.json`
-(see `config/properties.example.json`).
+## Requests and token usage
 
----
+- Reviews default to the newest 20 in one request. Aggregates are labelled with their
+  actual window. `--all-reviews` is available when a lifetime calculation is needed.
+- AirROI makes one request for a fresh coordinate pool. Only an empty pool can trigger
+  a second address lookup. Pools cache for 14 days; subject listings are excluded.
+- Gemini scores five distinct images per request, with two batches at a time. Scores
+  cache for 120 days by URL, model and rubric version. Changed query parameters are part
+  of image identity. Thirty small uncached photos normally need six scoring requests;
+  large-image splits and transient retries can add requests, which are counted.
+- Gemini outputs record actual requests, downloads and returned token usage. An expired
+  key or missing model cancels remaining queued batches. Each transient failure has at
+  most three attempts; permanent failures are not repeatedly billed.
+- The agent reads one digest and writes only copy and reasoning. Shared instructions
+  avoid repeating historical research and debugging stories on every run.
 
-## Memory (optional)
+A live five-photo comparison used **1 request / 2,561 tokens** in a batch versus
+**5 requests / 4,731 tokens** individually. A cached repeat made **0 requests and 0 image
+downloads**. This is one measured sample, not a guarantee for every gallery. Scene labels
+matched, but scores and the selected cover differed. Treat vision scores as recommendations,
+not objective measurements. `analyze_photos.py --batch-size 1 --no-cache` enables a fresh individual comparison.
 
-Every run is remembered locally — a compact, price-free summary lands in `state/history.jsonl`
-(gitignored) so the next run can show you the trend (ALE movement, title last changed, views/CTR).
-This is always on, zero setup. If you already have a **Supabase** MCP connected (for example from
-the Revenue Manager), the same record also syncs to a `listing_optimizer_runs` table — run
-`migrations/001_listing_optimizer_runs.sql` once in your own Supabase project (or let Claude apply
-it for you the first time). No Supabase? It just keeps the local history. The memory **never stores
-pricing** — it's scanned with the same zero-pricing guardrail as the reports.
+## Refresh, recovery and stopping
 
----
+| Option | Behavior |
+|---|---|
+| `--refresh` | Re-fetch Hospitable source data. Paid caches still apply. |
+| `--no-cache` or `LO_NO_CACHE=1` | Bypass paid caches even if old output files exist. |
+| `--photo-limit N` | Score 1..100 gallery photos; default 30. |
+| `--review-limit N` | Pull 1..50 recent reviews; default 20. |
+| `--skip photos,comps` | Avoid paid scoring and comp lookup. |
+
+A missing/invalid subject stops the run before paid work. Optional failures are labelled
+as degraded; exit 0 can still have missing sections. The status file excludes old failed
+artifacts so they cannot silently reenter the report. A failed refresh stays invalid until
+the source is fetched successfully or restaged. Rerun the same command to recover.
+
+Ctrl-C stops a foreground run. There is no background scheduler. Cached successful results
+are reusable. Generated reports and draft copy do not change the live listing.
+
+## History and application
+
+`memory.py record` saves a compact, price-free local history in `state/history.jsonl`.
+Same-listing/same-date runs replace that record. File locks protect history and cache
+updates when portfolio runs finish together. Draft reports are not marked as applied;
+cadence changes only after the live listing actually changes.
+
+Supabase sync is optional and requires a project explicitly nominated in
+`config/memory.json` or its dedicated REST configuration. The default workflow never
+creates database tables or discovers a writable project on its own.
+
+Hospitable uses the paste block. Other PMS content updates require a verified supported
+API, approval of the exact copy, a before-snapshot, a content-only request and a confirming
+read. Those write integrations are not bundled or end-to-end tested here.
 
 ## Updating
 
-Improvements land in this repo. **If you cloned with git (recommended)**, from the project folder:
+Reuse the existing installation. Inspect local changes before updating:
 
 ```bash
-git pull
+git status --short
+git pull --ff-only
+.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+.venv/bin/python -m pytest -q
 ```
 
-(Or just ask Claude Code: *"update the listing optimizer."*) That is the whole update, and your
-setup survives it untouched: `.env` (your AirROI, Gemini and PMS keys), `config/properties.json`
-(RankBreeze ids, seasonal flags, per-listing notes), `branding.json`, `state/` (your cadence
-history) and `output/` (past runs) are all **gitignored**, so git never overwrites, reverts or
-deletes them. Only the shipped skill, scripts and docs update. Your MCP connections (PMS,
-RankBreeze, Supabase) live in your Claude Code config *outside* this folder and are not touched
-either.
+Preserve any local code changes if git reports a conflict. ZIP users should ask the agent
+to convert the existing folder to git in place after backing it up. Do not clone a second
+copy or delete the original. Preserve `.env`, all personal `config/` files, `branding.json`,
+`state/` and `output/`. Gitignore is not a substitute for a backup.
 
-If `git pull` says local changes would be overwritten, you edited a shipped file:
-`git stash && git pull && git stash pop` keeps your edit, `git checkout -- <file> && git pull`
-discards it. Neither can touch the gitignored files above.
-
-**If you installed from the zip**, re-download, unzip to a *new* folder, then carry these four
-across from the old folder before you delete it:
-
-```
-.env                      your API keys (AirROI, Gemini, PMS token)
-config/properties.json    RankBreeze ids, seasonal flags, per-listing notes
-branding.json             your report branding
-state/                    cadence history (what's due, what you last refreshed)
-```
-
-Then rebuild the venv in the new folder (`python3 -m venv .venv`, then
-`.venv/bin/pip install -r requirements.txt -r requirements-dev.txt`). Miss any of the four and
-you silently lose that setup, which is why git is worth the one-time switch — ask Claude to
-*"switch me to git"* and it will move you over.
-
----
-
-## Tests
+## Verification
 
 ```bash
-.venv/bin/pip install -r requirements-dev.txt   # pytest, if you skipped it above
-.venv/bin/python -m pytest -q          # or: .venv/bin/python tests/test_guardrail.py
+.venv/bin/python -m pytest -q
 ```
-The **zero-pricing guardrail** is the #1 invariant: the paste content is word-strict (no price/ADR/
-min-stay terms at all) and the report blocks any price number. Both are covered by the test suite.
 
----
-
-## License
+Tests cover pricing guards, copy validation, retries, real request construction against
+mock HTTP transports, cache reuse, concurrency, pipeline recovery, occupancy and report
+assembly. Unit tests alone do not establish live provider access. See
+[the MVP review](docs/MVP-REVIEW.md) for the measured validation and remaining limits.
 
 MIT. See [LICENSE](LICENSE).

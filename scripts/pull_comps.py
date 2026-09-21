@@ -31,6 +31,13 @@ from pathlib import Path
 # Vendored client lives next to this script — plain same-dir import (no repo path).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import airroi_client  # noqa: E402
+import cache  # noqa: E402
+
+# Comp pools move slowly. Measured on a real listing across 4 runs: 1 day apart =
+# byte-identical pool; 7 days = 9/10 top comps + 1.5pt amenity drift; 8 weeks = 8/10
+# + 2.3pt. 14 days keeps us inside the noise the ALE rubric can actually resolve.
+CACHE_TTL_DAYS = 14
+CACHE_NS = "airroi_comps"
 
 
 # ── Pricing strip: whitelist only NON-PRICE fields ────────────────────
@@ -108,6 +115,29 @@ def _amenity_frequency(comps: list[dict]) -> list[dict]:
     return rows
 
 
+def _cache_key(args, radius) -> str:
+    """Key on WHAT WE ASK FOR, not on the listing.
+
+    Coordinates snap to a ~110m cell (3dp). Measured against the live API from one point:
+    a query 110m away returned an IDENTICAL 25-listing pool, 1.1km away shared 21/25, and
+    2.2km away 19/25 — so 3dp is the largest cell over which the pool is still the same
+    thing. Anything coarser would serve a materially different comp pool from cache.
+
+    Consequence worth knowing: two units in the same building share one paid call, but two
+    listings a kilometre apart do not. A miss only ever costs the call we would have made
+    anyway, so the conservative grid is the right trade.
+
+    The address is deliberately NOT in the key: it is only ever a fallback for an empty
+    coord pool, so it cannot change the result of a successful lookup.
+    """
+    return cache.key_for(
+        lat=round(args.lat, 3) if args.lat is not None else None,
+        lng=round(args.lng, 3) if args.lng is not None else None,
+        addr=(args.address or "").strip().casefold() if args.lat is None or args.lng is None else None,
+        bedrooms=args.bedrooms, baths=args.baths, guests=args.guests, radius=radius,
+    )
+
+
 async def _run(args) -> dict:
     # Widen the search radius for large properties (thin comp pools), like the
     # original pipeline did — overridable with --radius.
@@ -115,19 +145,43 @@ async def _run(args) -> dict:
     if radius:
         print(f"[pull_comps] using {radius}-mile radius for {args.bedrooms}BR property", file=sys.stderr)
 
-    comps_raw = await airroi_client.fetch_comps(
-        latitude=args.lat, longitude=args.lng, address=args.address,
-        bedrooms=args.bedrooms, baths=args.baths, guests=args.guests, radius=radius,
-    )
-    # airroi_client.fetch_comps() already owns the uniqueness invariant (it merges
-    # the coords + address result sets by listing_id). Re-keying here is a cheap
-    # belt-and-suspenders after _clean_comp() — not a second source of truth.
+    ck = _cache_key(args, radius)
+    # Empty-coordinate fallbacks depend on address. They must not poison the
+    # shared coordinate pool for another address in the same grid cell.
+    fallback_ck = cache.key_for(query=ck, fallback=(args.address or "").strip().casefold())
+    ttl = 0 if args.no_cache else args.cache_ttl_days
+    cached = cache.get(CACHE_NS, ck, ttl)
+    hit_key = ck
+    if cached is None and args.address:
+        cached = cache.get(CACHE_NS, fallback_ck, ttl)
+        hit_key = fallback_ck
+    if cached is not None:
+        age = cache.age_days(CACHE_NS, hit_key)
+        print(f"[pull_comps] CACHE HIT ({age}d old, ttl {ttl}d) — 0 AirROI calls. "
+              f"--no-cache to force a fresh pull.", file=sys.stderr)
+        comps_raw, meta = cached, {"calls": 0, "path": "cache", "cache_age_days": age}
+    else:
+        comps_raw, meta = await airroi_client.fetch_comps(
+            latitude=args.lat, longitude=args.lng, address=args.address,
+            bedrooms=args.bedrooms, baths=args.baths, guests=args.guests, radius=radius,
+        )
+        print(f"[pull_comps] {meta['calls']} AirROI call(s) [{meta['path']}]", file=sys.stderr)
+    # airroi_client.fetch_comps() already owns the uniqueness invariant (it dedupes the
+    # single result set by listing_id). Re-keying here is a cheap belt-and-suspenders after
+    # _clean_comp() — not a second source of truth. It also covers the cache path, where
+    # comps_raw came off disk rather than from the client.
     cleaned: dict = {}
     for c in comps_raw:
-        lid = (c.get("listing_info") or {}).get("listing_id")
-        if lid and lid not in cleaned:
-            cleaned[lid] = _clean_comp(c)
-    comps = sorted(cleaned.values(), key=_demand_key, reverse=True)
+        comp = _clean_comp(c) if "listing_info" in c else c
+        lid = comp.get("listing_id")
+        if lid and str(lid) not in cleaned:
+            cleaned[str(lid)] = comp
+    # Cache only the whitelist; older raw cache entries are cleaned on reuse.
+    if cleaned and not args.no_cache and cached is None:
+        save_key = fallback_ck if meta.get("fallback_used") else ck
+        cache.put(CACHE_NS, save_key, list(cleaned.values()))
+    excluded_id = str(getattr(args, "exclude_listing_id", None) or "")
+    comps = sorted((c for lid, c in cleaned.items() if lid != excluded_id), key=_demand_key, reverse=True)
 
     top = comps[: args.top]
     return {
@@ -136,6 +190,7 @@ async def _run(args) -> dict:
             "market": args.market, "bedrooms": args.bedrooms,
             "baths": args.baths, "guests": args.guests, "radius": radius,
         },
+        "fetch": meta,  # paid-call count + path (or cache hit) — honest cost reporting
         "comp_count": len(comps),
         "ranking_basis": "demand only: nights booked, then occupancy, then review count (no monetary signals).",
         "top_comps": top,
@@ -157,11 +212,18 @@ def main():
     ap.add_argument("--guests", type=int, required=True)
     ap.add_argument("--radius", type=int, default=None, help="miles; widen for thin markets")
     ap.add_argument("--top", type=int, default=10, help="how many top comps to keep")
+    ap.add_argument("--exclude-listing-id", default=None, help="subject Airbnb ID, excluded after cache lookup")
     ap.add_argument("--out", type=str, default=None, help="write JSON here (else stdout)")
+    ap.add_argument("--no-cache", action="store_true",
+                    help="force a fresh paid pull, ignoring (and not writing) the cache")
+    ap.add_argument("--cache-ttl-days", type=float, default=CACHE_TTL_DAYS,
+                    help=f"reuse a cached comp pool this recent (default {CACHE_TTL_DAYS})")
     args = ap.parse_args()
 
     if not ((args.lat is not None and args.lng is not None) or args.address):
         ap.error("provide --lat/--lng or --address")
+    if args.top < 1 or (args.radius is not None and args.radius < 1):
+        ap.error("--top and --radius must be positive")
 
     try:
         result = asyncio.run(_run(args))
@@ -173,7 +235,9 @@ def main():
         out = Path(args.out)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(text, encoding="utf-8")
-        print(f"[pull_comps] {result['comp_count']} comps → {out}  (top {len(result['top_comps'])} kept)")
+        f = result["fetch"]
+        print(f"[pull_comps] {result['comp_count']} comps → {out}  "
+              f"(top {len(result['top_comps'])} kept, {f['calls']} paid call(s) [{f['path']}])")
     else:
         print(text)
 

@@ -7,8 +7,12 @@ Every run produces a compact, PRICE-FREE summary of what the optimizer did
 the price-free funnel snapshot, forward occupancy, what cadence items refreshed).
 That summary is:
 
-  • ALWAYS appended to a local history file   → state/history.jsonl   (zero setup)
+  • ALWAYS upserted into a local history file → state/history.jsonl   (zero setup)
   • OPTIONALLY mirrored to Supabase           → table listing_optimizer_runs
+
+BOTH layers key on (listing_slug, run_date) — see _KEY_COLS. A same-day re-run REPLACES
+the row in both, last write wins. The local layer used to blind-append, so the two stores
+silently disagreed about the same logical row and duplicates accumulated locally only.
 
 so the next run can compare against the last one (ALE trend, "title last changed
 3 weeks ago", views/CTR movement) — the measurement loop.
@@ -26,6 +30,8 @@ Subcommands:
   record     --result result.json [--result-path P] [--season S] [--applied]
              [--cadence-marked a,b] [--history H] [--out record.json] [--no-local]
   prior      --listing SLUG [--history H] [--limit N] [--rest]
+  dedupe     [--history H] [--dry-run]        repair duplicate rows in an older history file
+  merge-rows --rows rows.json [--history H]   pull remote rows down into the local history
   sql-upsert --record record.json [--table T]
   sql-prior  --listing SLUG [--limit N] [--table T]
   rest-upsert --record record.json [--table T]
@@ -37,9 +43,12 @@ import json
 import os
 import re
 import sys
+import tempfile
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+from artifacts import file_lock
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_HISTORY = ROOT / "state" / "history.jsonl"
@@ -124,7 +133,9 @@ def summarize(result: dict, *, result_path: str | None = None, season: str | Non
         "ale_total": ale_total,
         "ale_scores": ale_scores,
         "title": optimized.get("title"),
-        "summary_char_count": optimized.get("summary_char_count"),
+        "summary_char_count": (len(optimized["summary"].strip())
+                               if isinstance(optimized.get("summary"), str)
+                               else optimized.get("summary_char_count")),
         "applied": bool(applied) if applied is not None else bool(result.get("applied", False)),
         "photo_hero": photos.get("hero"),
         "photo_top5": photos.get("recommended_top5_order", []) or [],
@@ -155,11 +166,164 @@ def assert_price_free(rec: dict) -> None:
 
 
 # ── Local history (always-on layer) ──────────────────────────────────────────
-def append_local(rec: dict, history_path: Path) -> None:
-    history_path.parent.mkdir(parents=True, exist_ok=True)
-    with history_path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+def _row_key(rec: dict) -> tuple:
+    """The record's identity — read from _KEY_COLS, which is the SAME constant the SQL
+    ON CONFLICT clause is built from. Hardcoding the column names here would let the local
+    upsert and the Supabase upsert drift apart, which is the exact class of bug that let
+    duplicates accumulate locally while Supabase stayed clean."""
+    return tuple(rec.get(c) for c in _KEY_COLS)
 
+
+def append_local(rec: dict, history_path: Path) -> str:
+    """UPSERT the record into the local history on (listing_slug, run_date).
+
+    This used to be a blind append, which meant the two stores disagreed about the same
+    logical row: Supabase does `ON CONFLICT (listing_slug, run_date) DO UPDATE`, so a
+    same-day re-run REPLACED the row there, while the local file grew a second one. Real
+    consequence found on 2026-09-20: `state/history.jsonl` carried two rows each for
+    boho-bliss 2026-08-05 and olde-town-ambler 2026-08-18 — same run, refined copy — and
+    `prior` then served a stale sibling of today's run as if it were the previous run,
+    quietly corrupting the trend comparison the memory layer exists to provide.
+
+    Semantics now mirror the SQL: last write wins, the row keeps its position so history
+    stays chronological, and any pre-existing duplicates of that key collapse to one.
+
+    Returns "inserted" or "replaced" so the caller can say which happened.
+
+    Robustness: operates on RAW lines and copies anything unparseable through untouched —
+    rebuilding the file from parsed rows would silently discard a corrupt line, and losing
+    history to a dedupe is a worse bug than the duplicate. Writes via a temp file +
+    os.replace so an interrupted run cannot truncate the history.
+    """
+    with file_lock(history_path.with_suffix(history_path.suffix + ".lock")):
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        key = _row_key(rec)
+        payload = json.dumps(rec, ensure_ascii=False)
+
+        # No key (shouldn't happen — summarize() validates) → fall back to a plain append
+        # rather than collapsing every keyless row into one.
+        if not any(key):
+            with history_path.open("a", encoding="utf-8") as fh:
+                fh.write(payload + "\n")
+            return "inserted"
+
+        existing = history_path.read_text(encoding="utf-8").splitlines() if history_path.exists() else []
+        out: list[str] = []
+        status = "inserted"
+        for line in existing:
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+                matches = isinstance(row, dict) and _row_key(row) == key
+            except Exception:
+                matches = False  # unparseable: keep verbatim, never drop
+            if matches:
+                if status == "inserted":  # first match becomes the new record, in place
+                    out.append(payload)
+                    status = "replaced"
+                # any further matches are pre-existing duplicates — collapsed
+            else:
+                out.append(line)
+        if status == "inserted":
+            out.append(payload)
+
+        _atomic_write_lines(history_path, out)
+        return status
+
+
+def _atomic_write_lines(path: Path, lines: list[str]) -> None:
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            for line in lines:
+                fh.write(line + "\n")
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def dedupe_local(history_path: Path, dry_run: bool = False) -> dict:
+    """Collapse any pre-existing duplicate (listing_slug, run_date) rows, LAST wins.
+
+    Repairs files written before append_local became an upsert. Last-wins matches both the
+    SQL and the reality of a same-day re-run: the later row is the refined one (verified on
+    the real duplicates — the second row had the reworded amenity gaps and the corrected
+    summary_char_count).
+    """
+    with file_lock(history_path.with_suffix(history_path.suffix + ".lock")):
+        if not history_path.exists():
+            return {"total": 0, "kept": 0, "removed": 0, "keys": []}
+        raw = [l for l in history_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        last_index: dict[tuple, int] = {}
+        parsed: list[tuple] = []  # (key|None, line)
+        for i, line in enumerate(raw):
+            try:
+                row = json.loads(line)
+                key = _row_key(row) if isinstance(row, dict) else None
+            except Exception:
+                key = None
+            if key and any(key):
+                last_index[key] = i
+            parsed.append((key, line))
+
+        dupes = sorted({k for k in last_index if sum(1 for kk, _ in parsed if kk == k) > 1})
+        out = [line for i, (key, line) in enumerate(parsed)
+               if key is None or not any(key) or last_index[key] == i]
+        if not dry_run and len(out) != len(raw):
+            backup = history_path.with_suffix(history_path.suffix + ".bak")
+            backup.write_text("\n".join(raw) + "\n", encoding="utf-8")
+            _atomic_write_lines(history_path, out)
+        return {"total": len(raw), "kept": len(out), "removed": len(raw) - len(out),
+                "keys": [f"{s} {d}" for s, d in dupes]}
+
+
+def coerce_row(row: dict) -> dict:
+    """Turn a Supabase row back into a local-history record.
+
+    Postgres hands numerics back as STRINGS through the MCP/REST layers ("3.14"), so a raw
+    row written straight into history.jsonl would store `ale_total` as text and every
+    numeric trend comparison would silently compare strings. jsonb columns already arrive
+    as objects. Unknown/extra columns (id, created_at) are dropped so the local shape stays
+    exactly COLUMNS.
+    """
+    out: dict = {}
+    for col in COLUMNS:
+        v = row.get(col)
+        if col in _NUM_COLS and isinstance(v, str):
+            try:
+                v = float(v)
+            except ValueError:
+                v = None
+            else:
+                if v is not None and float(v).is_integer() and col != "ale_total":
+                    v = int(v)
+        elif col in _BOOL_COLS:
+            v = bool(v) if v is not None else False
+        elif col in _JSONB_COLS and v is None:
+            v = [] if col in ("ale_scores", "photo_top5", "amenity_gaps", "cadence_marked") else {}
+        out[col] = v
+    return out
+
+
+def merge_rows(rows: list[dict], history_path: Path) -> dict:
+    """Upsert remote rows into the local history. Local and remote are the SAME record keyed
+    the same way, so pulling down is just an upsert per row — a run that exists only upstream
+    (e.g. one made on another machine, since state/ is gitignored and per-machine) lands
+    locally without disturbing anything already there."""
+    stats = {"inserted": 0, "replaced": 0, "skipped": 0}
+    for row in rows:
+        rec = coerce_row(row)
+        if not rec.get("listing_slug") or not rec.get("run_date"):
+            stats["skipped"] += 1
+            continue
+        assert_price_free(rec)
+        stats[append_local(rec, history_path)] += 1
+    return stats
 
 def read_local(history_path: Path) -> list[dict]:
     if not history_path.exists():
@@ -286,6 +450,15 @@ def main(argv: list[str] | None = None) -> int:
 
     p_rec = sub.add_parser("record", help="summarize a result.json into a price-free record + append local history")
     p_rec.add_argument("--result", required=True)
+    # REQUIRED IN PRACTICE. result.json no longer carries the machine blocks (photos,
+    # occupancy, comps.top) — render_report.py merges those from the working dir at render
+    # time. Without --workdir the record silently stores photo_hero=null, photo_top5=[],
+    # reshoot_count=0 and occupancy=null, which quietly destroys the run-to-run trend this
+    # whole memory layer exists to provide. Caught by a full end-to-end run on 2026-09-20.
+    p_rec.add_argument("--workdir", default=None,
+                       help="output/<DATE>/<SLUG> — merge the machine blocks from disk so the "
+                            "record captures hero/top5/reshoot/occupancy. Defaults to the "
+                            "directory containing --result.")
     p_rec.add_argument("--result-path", default=None, help="path to store as a pointer (defaults to --result)")
     p_rec.add_argument("--season", default=None)
     p_rec.add_argument("--applied", action="store_true")
@@ -293,6 +466,14 @@ def main(argv: list[str] | None = None) -> int:
     p_rec.add_argument("--history", default=str(DEFAULT_HISTORY))
     p_rec.add_argument("--out", default=None, help="also write the record JSON here")
     p_rec.add_argument("--no-local", action="store_true", help="don't append to local history")
+
+    p_mr = sub.add_parser("merge-rows", help="upsert remote Supabase rows (JSON array) into the local history")
+    p_mr.add_argument("--rows", required=True, help="path to a JSON array of listing_optimizer_runs rows")
+    p_mr.add_argument("--history", default=str(DEFAULT_HISTORY))
+
+    p_dd = sub.add_parser("dedupe", help="collapse duplicate (listing_slug, run_date) rows in the local history, last wins")
+    p_dd.add_argument("--history", default=str(DEFAULT_HISTORY))
+    p_dd.add_argument("--dry-run", action="store_true", help="report what would change, write nothing")
 
     p_pri = sub.add_parser("prior", help="print most-recent prior runs for a listing")
     p_pri.add_argument("--listing", required=True)
@@ -317,6 +498,22 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "record":
         result = _load_result(args.result)
+        # Rehydrate the machine blocks the model no longer retypes into result.json. The
+        # merge is imported from render_report so there is exactly ONE implementation — a
+        # second copy here would be free to drift, and a drifting merge is invisible.
+        wd = Path(args.workdir) if args.workdir else Path(args.result).parent
+        if wd.is_dir():
+            try:
+                sys.path.insert(0, str(Path(__file__).resolve().parent))
+                from render_report import merge_machine_blocks
+                filled = merge_machine_blocks(result, wd)
+                if filled:
+                    print(f"[memory] merged from {wd}: {', '.join(filled)}", file=sys.stderr)
+            except (ValueError, OSError) as e:
+                raise SystemExit(f"[memory] invalid working artifacts; refusing to record: {e}")
+            except ImportError as e:
+                print(f"[memory] WARNING: could not merge machine blocks ({e}) — "
+                      f"photo/occupancy trend fields may be empty", file=sys.stderr)
         marked = [s.strip() for s in args.cadence_marked.split(",")] if args.cadence_marked else None
         rec = summarize(
             result,
@@ -327,11 +524,34 @@ def main(argv: list[str] | None = None) -> int:
         )
         assert_price_free(rec)
         if not args.no_local:
-            append_local(rec, Path(args.history))
+            what = append_local(rec, Path(args.history))
+            if what == "replaced":
+                print(f"[memory] REPLACED the existing {rec['listing_slug']} "
+                      f"{rec['run_date']} row (same-day re-run — last write wins, "
+                      f"matching the Supabase upsert)", file=sys.stderr)
         if args.out:
             Path(args.out).parent.mkdir(parents=True, exist_ok=True)
             Path(args.out).write_text(json.dumps(rec, indent=2, ensure_ascii=False), encoding="utf-8")
         print(json.dumps(rec, ensure_ascii=False))
+        return 0
+
+    if args.cmd == "merge-rows":
+        rows = json.loads(Path(args.rows).read_text(encoding="utf-8"))
+        if isinstance(rows, dict):
+            rows = rows.get("data") or rows.get("result") or [rows]
+        s = merge_rows(rows, Path(args.history))
+        print(f"[memory] merge-rows: {s['inserted']} inserted, {s['replaced']} replaced, "
+              f"{s['skipped']} skipped (no key)")
+        return 0
+
+    if args.cmd == "dedupe":
+        r = dedupe_local(Path(args.history), dry_run=args.dry_run)
+        verb = "would remove" if args.dry_run else "removed"
+        print(f"[memory] {r['total']} rows → {r['kept']} kept, {verb} {r['removed']} duplicate(s)")
+        for k in r["keys"]:
+            print(f"   duplicate key: {k}")
+        if r["removed"] and not args.dry_run:
+            print(f"[memory] backup written to {args.history}.bak")
         return 0
 
     if args.cmd == "prior":

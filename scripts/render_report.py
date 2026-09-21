@@ -23,6 +23,9 @@ import json
 import re
 import sys
 from pathlib import Path
+from datetime import date
+
+import artifacts
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -74,7 +77,7 @@ PRICE_NUMBER_RE = re.compile(r"""(?ix)
 def build_paste_block(data: dict) -> str:
     o = data.get("optimized", {})
     lines = []
-    lines.append(f"=== {data.get('listing', {}).get('name', 'Listing')} — Optimized Content ===")
+    lines.append(f"=== {data.get('listing', {}).get('name', 'Listing')}: Optimized Content ===")
     lines.append(f"(Generated {data.get('run_date', '')} · paste into your PMS; it syncs to your channels)\n")
     lines.append("--- TITLE ---")
     lines.append(o.get("title", "").strip() + "\n")
@@ -98,6 +101,148 @@ def guardrail_scan(name: str, text: str, rx=PRICING_RE) -> list[str]:
     return [f"{name}: '{m.group(0)}'" for m in rx.finditer(text)]
 
 
+# ── Machine blocks: assembled from disk, never retyped by the model ───
+# Measured on two real runs, 46% and 49% of result.json was the model hand-copying data
+# that already sat in photo_scores.json / comps.json / funnel.json / occupancy.json /
+# cadence.json (11.3KB of 24.1KB, 10.9KB of 21.8KB). That is ~2,800 output tokens per run
+# of pure transcription, at output-token prices, and every retyped number is a chance to
+# silently miscopy a rating or an occupancy figure into the deliverable. The model should
+# only author what it reasoned about: the scorecard, the copy, the captions, the diagnosis.
+def _photos_block(ps: dict) -> dict:
+    return {
+        "hero": ps.get("hero"),
+        "recommended_top5_order": ps.get("recommended_top5_order") or [],
+        "top5_beats": ps.get("top5_beats") or [],
+        "reshoot": ps.get("reshoot") or [],
+        "restage": ps.get("restage") or [],
+        "gaps": ps.get("gaps") or [],
+        "coverage_note": ps.get("coverage_note"),
+        "unranked": [f.get("order") for f in (ps.get("failed") or [])],
+        "scored": [{"order": p.get("order"), "url": p.get("url"),
+                    "subject": p.get("subject"), "subject_kind": p.get("subject_kind"),
+                    "avg": p.get("avg")}
+                   for p in (ps.get("photos") or []) if p.get("scored")],
+    }
+
+
+def _comps_block(c: dict) -> dict:
+    return {
+        "comp_count": c.get("comp_count"),
+        "ranking_basis": c.get("ranking_basis"),
+        "top": [{"name": t.get("name"), "airbnb_url": t.get("airbnb_url"),
+                 "bedrooms": t.get("bedrooms"), "baths": t.get("baths"),
+                 "guests": t.get("guests"), "ratings": t.get("ratings") or {},
+                 "performance": t.get("performance") or {}}
+                for t in (c.get("top_comps") or [])],
+        "title_patterns": c.get("comp_title_samples") or [],
+        # amenity_gaps stays the model's call: it needs the subject's amenity list to
+        # decide what is genuinely missing vs. present-but-buried.
+    }
+
+
+# Verified against two real runs: occupancy.json's `report_block` and cadence.json's
+# `due` were BYTE-IDENTICAL to what the model had retyped into result.json.
+#
+# `funnel` is deliberately NOT here. result.json's funnel block is a model-NORMALIZED view
+# of the RankBreeze pull (city_rank / views_monthly / ctr_vs_similar / lever_focus /
+# diagnosis), and no run on disk had a funnel.json to verify the raw shape against, so
+# auto-merging it would be a guess. It stays model-authored until someone measures it.
+MACHINE_BLOCKS = {
+    "photos": ("photo_scores.json", _photos_block),
+    "comps": ("comps.json", _comps_block),
+    "occupancy": ("occupancy.json", lambda x: x.get("report_block") or x),
+    "cadence": ("cadence.json", lambda x: {"due": x.get("due") or []}),
+}
+
+
+def merge_machine_blocks(data: dict, workdir: Path) -> list[str]:
+    """Fill any MISSING machine block from the working dir. Never overwrites the model's
+    own value — if it chose to author a block, that wins (e.g. amenity_gaps inside comps).
+    Returns the names filled, for reporting."""
+    filled = []
+    status = artifacts.run_status(workdir)
+    if status.get("status") in ("running", "failed"):
+        raise ValueError("pipeline is incomplete or failed; rerun before rendering")
+    for key, expected in (("listing_slug", (data.get("listing") or {}).get("slug")),
+                          ("run_date", data.get("run_date"))):
+        if status.get(key) is not None and status[key] != expected:
+            raise ValueError(f"pipeline {key} does not match result; use the correct workdir")
+    if status:
+        data["data_gaps"] = [f"{s['name']}: {s['detail']}" for s in status.get("steps", [])
+                             if s.get("status") == "FAILED"]
+    for key, (fname, shape) in MACHINE_BLOCKS.items():
+        if artifacts.excluded(workdir, fname):
+            data.pop(key, None)
+            continue
+        src = workdir / fname
+        if not src.exists():
+            continue
+        try:
+            raw = json.loads(src.read_text(encoding="utf-8"))
+        except Exception as e:
+            sys.stderr.write(f"[render_report] WARNING: {fname} unreadable ({e}) — skipped\n")
+            continue
+        try:
+            block = shape(raw)
+        except Exception as e:
+            sys.stderr.write(f"[render_report] WARNING: {fname} unexpected shape ({e}) — skipped\n")
+            continue
+        existing = data.get(key)
+        if not isinstance(existing, dict):
+            data[key] = block
+            filled.append(key)
+        else:
+            # Merge key-by-key so the model can author one field of a block (comps.
+            # amenity_gaps) and still inherit the machine-generated rest.
+            added = [k for k, v in block.items() if k not in existing or existing[k] in (None, [], {}, "")]
+            for k in added:
+                existing[k] = block[k]
+            if added:
+                filled.append(f"{key}({','.join(added)})")
+    return filled
+
+
+def validate_result(data: dict) -> None:
+    """Reject unusable paste copy before creating any deliverables."""
+    if not isinstance(data, dict) or not isinstance(data.get("listing"), dict):
+        raise ValueError("result must contain a listing object")
+    if not isinstance(data["listing"].get("name"), str) or not data["listing"]["name"].strip():
+        raise ValueError("listing.name is required")
+    optimized = data.get("optimized")
+    if not isinstance(optimized, dict):
+        raise ValueError("optimized copy is required")
+    for key, limit in (("title", 50), ("summary", 500), ("the_space", None)):
+        value = optimized.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"optimized.{key} must be nonempty text")
+        optimized[key] = value.strip()
+        if limit and len(optimized[key]) > limit:
+            raise ValueError(f"optimized.{key} exceeds {limit} characters")
+    captions = optimized.get("captions", [])
+    if not isinstance(captions, list):
+        raise ValueError("optimized.captions must be a list")
+    orders = set()
+    for c in captions:
+        if (not isinstance(c, dict) or type(c.get("order")) is not int
+                or c["order"] < 0 or c["order"] in orders
+                or not isinstance(c.get("caption"), str) or not c["caption"].strip()
+                or len(c["caption"]) > 250):
+            raise ValueError("captions need unique photo orders and 1..250 characters")
+        orders.add(c["order"])
+    optimized["summary_char_count"] = len(optimized["summary"])
+
+
+def normalize_prose(value, key=""):
+    """Apply the writing rule to human text while preserving URLs verbatim."""
+    if isinstance(value, dict):
+        return {k: normalize_prose(v, k) for k, v in value.items()}
+    if isinstance(value, list):
+        return [normalize_prose(v, key) for v in value]
+    if isinstance(value, str) and not key.endswith("url"):
+        return re.sub(r"\s*\u2014\s*", ". ", value)
+    return value
+
+
 def main():
     ap = argparse.ArgumentParser(description="Render optimized listing to HTML+MD+paste block.")
     ap.add_argument("--data", required=True, help="result JSON from the optimizer")
@@ -105,9 +250,26 @@ def main():
     ap.add_argument("--date", required=True, help="YYYY-MM-DD (run date)")
     ap.add_argument("--out-base", default=str(DEFAULT_OUT_BASE))
     ap.add_argument("--branding", default=str(ROOT / "branding.json"))
+    ap.add_argument("--workdir", default=None,
+                    help="output/<DATE>/<SLUG> — merge the machine-generated blocks "
+                         "(photos/comps/funnel/occupancy/cadence) from disk instead of "
+                         "requiring them in --data. Anything already in --data wins.")
     args = ap.parse_args()
-
-    data = json.loads(Path(args.data).read_text(encoding="utf-8"))
+    try:
+        date.fromisoformat(args.date)
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", args.listing_slug):
+            raise ValueError("invalid listing slug")
+        data = normalize_prose(json.loads(Path(args.data).read_text(encoding="utf-8")))
+        validate_result(data)
+        if data.get("run_date") != args.date or data["listing"].get("slug", args.listing_slug) != args.listing_slug:
+            raise ValueError("result listing/date do not match the requested output")
+        if args.workdir:
+            merged = merge_machine_blocks(data, Path(args.workdir))
+            if merged:
+                print(f"[render_report] merged from disk: {', '.join(merged)}")
+            data = normalize_prose(data)
+    except (OSError, ValueError) as e:
+        sys.exit(f"[render_report] invalid result: {e}")
     # branding.json is per-user (gitignored); fall back to the shipped template.
     bpath = Path(args.branding)
     if not bpath.exists():

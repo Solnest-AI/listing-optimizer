@@ -9,12 +9,15 @@ Run: .venv/bin/python -m pytest tests/test_memory.py -q
 """
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import memory  # noqa: E402
+
+mem = memory  # alias used by the history-upsert tests below
 from render_report import PRICE_NUMBER_RE as RENDER_PRICE_NUMBER_RE  # noqa: E402
 
 
@@ -192,5 +195,205 @@ def test_prior_sql_shape():
     assert "LIMIT 3" in sql
 
 
+# ── Local history is an UPSERT, not an append ────────────────────────────────
+# Real bug, 2026-09-20: append_local() did a blind write while Supabase does
+# `ON CONFLICT (listing_slug, run_date) DO UPDATE`. A same-day re-run therefore made one
+# row on Supabase and TWO locally. state/history.jsonl had accumulated duplicate pairs for
+# boho-bliss 2026-08-05 and olde-town-ambler 2026-08-18, and `prior` served the stale
+# sibling of today's run as the previous run, corrupting the trend comparison.
+def _rec(slug="x", date="2026-09-20", **extra):
+    r = {"listing_slug": slug, "run_date": date, "ale_total": 3.0, "title": "t"}
+    r.update(extra)
+    return r
+
+
+def test_same_day_rerun_replaces_instead_of_appending():
+    with tempfile.TemporaryDirectory() as tmp:
+        h = Path(tmp) / "history.jsonl"
+        assert mem.append_local(_rec(ale_total=3.0), h) == "inserted"
+        assert mem.append_local(_rec(ale_total=3.5), h) == "replaced"
+        rows = mem.read_local(h)
+        assert len(rows) == 1, f"same-day re-run appended a duplicate: {len(rows)} rows"
+        assert rows[0]["ale_total"] == 3.5, "last write must win, as the SQL upsert does"
+
+
+def test_different_days_and_listings_still_append():
+    with tempfile.TemporaryDirectory() as tmp:
+        h = Path(tmp) / "history.jsonl"
+        mem.append_local(_rec("boho", "2026-09-01"), h)
+        mem.append_local(_rec("boho", "2026-09-20"), h)
+        mem.append_local(_rec("ambler", "2026-09-20"), h)
+        assert len(mem.read_local(h)) == 3, "upsert must not collapse distinct keys"
+
+
+def test_replacement_keeps_chronological_position():
+    """A re-run must update the row in place, not move it to the end, or the history stops
+    reading chronologically and `prior` picks the wrong 'previous' run."""
+    with tempfile.TemporaryDirectory() as tmp:
+        h = Path(tmp) / "history.jsonl"
+        for d in ("2026-07-01", "2026-08-01", "2026-09-01"):
+            mem.append_local(_rec("boho", d), h)
+        mem.append_local(_rec("boho", "2026-08-01", ale_total=4.9), h)
+        dates = [r["run_date"] for r in mem.read_local(h)]
+        assert dates == ["2026-07-01", "2026-08-01", "2026-09-01"], f"order broken: {dates}"
+        mid = [r for r in mem.read_local(h) if r["run_date"] == "2026-08-01"][0]
+        assert mid["ale_total"] == 4.9
+
+
+def test_row_key_tracks_the_sql_conflict_key():
+    """If someone adds a column to the SQL conflict clause, the local key must follow. This
+    asserts they read from the same constant rather than two hardcoded lists."""
+    assert mem._row_key({"listing_slug": "a", "run_date": "b"}) == ("a", "b")
+    assert mem._KEY_COLS == ("listing_slug", "run_date")
+    sql = mem.upsert_sql(_rec()) if hasattr(mem, "upsert_sql") else ""
+    if sql:
+        assert "ON CONFLICT (listing_slug, run_date)" in sql, \
+            "SQL conflict key drifted from _KEY_COLS"
+
+
+def test_dedupe_collapses_pre_existing_duplicates_last_wins():
+    """Repairs a file written before the upsert fix. Verified against the real duplicates:
+    the LATER row carried the refined copy, so last-wins is the correct resolution."""
+    with tempfile.TemporaryDirectory() as tmp:
+        h = Path(tmp) / "history.jsonl"
+        lines = [json.dumps(_rec("boho", "2026-08-05", summary_char_count=484)),
+                 json.dumps(_rec("boho", "2026-08-05", summary_char_count=483)),
+                 json.dumps(_rec("ambler", "2026-08-18", summary_char_count=491)),
+                 json.dumps(_rec("ambler", "2026-08-18", summary_char_count=490)),
+                 json.dumps(_rec("boho", "2026-09-20"))]
+        h.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        r = mem.dedupe_local(h)
+        assert r == {"total": 5, "kept": 3, "removed": 2,
+                     "keys": ["boho 2026-08-05", "ambler 2026-08-18"]} or r["removed"] == 2
+        rows = mem.read_local(h)
+        assert len(rows) == 3
+        kept = {(x["listing_slug"], x["run_date"]): x["summary_char_count"] for x in rows
+                if "summary_char_count" in x}
+        assert kept[("boho", "2026-08-05")] == 483, "kept the superseded row, not the refined one"
+        assert kept[("ambler", "2026-08-18")] == 490
+
+
+def test_dedupe_dry_run_writes_nothing():
+    with tempfile.TemporaryDirectory() as tmp:
+        h = Path(tmp) / "history.jsonl"
+        h.write_text(json.dumps(_rec()) + "\n" + json.dumps(_rec()) + "\n", encoding="utf-8")
+        before = h.read_text()
+        r = mem.dedupe_local(h, dry_run=True)
+        assert r["removed"] == 1
+        assert h.read_text() == before, "--dry-run modified the file"
+
+
+def test_dedupe_backs_up_before_writing():
+    with tempfile.TemporaryDirectory() as tmp:
+        h = Path(tmp) / "history.jsonl"
+        h.write_text(json.dumps(_rec()) + "\n" + json.dumps(_rec()) + "\n", encoding="utf-8")
+        mem.dedupe_local(h)
+        bak = h.with_suffix(h.suffix + ".bak")
+        assert bak.exists(), "no backup written before rewriting history"
+        assert len(bak.read_text().strip().splitlines()) == 2, "backup is not the original"
+
+
+def test_unparseable_lines_are_never_dropped():
+    """Losing history to a dedupe is worse than the duplicate it fixes."""
+    with tempfile.TemporaryDirectory() as tmp:
+        h = Path(tmp) / "history.jsonl"
+        h.write_text("{ corrupt line\n" + json.dumps(_rec()) + "\n"
+                     + json.dumps(_rec()) + "\n", encoding="utf-8")
+        mem.dedupe_local(h)
+        raw = h.read_text().splitlines()
+        assert "{ corrupt line" in raw, "a corrupt line was silently discarded"
+        assert len(raw) == 2, f"expected corrupt line + 1 deduped row, got {raw}"
+        # and an upsert must also preserve it
+        mem.append_local(_rec(), h)
+        assert "{ corrupt line" in h.read_text()
+
+
+def test_keyless_record_is_appended_not_collapsed():
+    """Defensive: two records that both lack a key are not 'the same row'."""
+    with tempfile.TemporaryDirectory() as tmp:
+        h = Path(tmp) / "history.jsonl"
+        mem.append_local({"note": "a"}, h)
+        mem.append_local({"note": "b"}, h)
+        assert len(mem.read_local(h)) == 2, "keyless rows were wrongly collapsed"
+
+
+def test_history_write_is_atomic_no_partial_file():
+    """An interrupted rewrite must not truncate the history."""
+    with tempfile.TemporaryDirectory() as tmp:
+        h = Path(tmp) / "history.jsonl"
+        mem.append_local(_rec("boho", "2026-01-01"), h)
+        mem.append_local(_rec("boho", "2026-02-01"), h)
+        original = h.read_text()
+        real = mem._atomic_write_lines
+
+        def boom(path, lines):
+            raise OSError("disk full")
+        mem._atomic_write_lines = boom
+        try:
+            try:
+                mem.append_local(_rec("boho", "2026-03-01"), h)
+            except OSError:
+                pass
+            assert h.read_text() == original, "history was damaged by a failed write"
+        finally:
+            mem._atomic_write_lines = real
+        assert len(list(Path(tmp).glob("*.tmp"))) == 0, "temp file left behind"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+def test_coerce_row_turns_postgres_strings_back_into_numbers():
+    """Postgres returns numerics as STRINGS through the MCP/REST layers. Storing those raw
+    would make every numeric trend comparison a string comparison, silently."""
+    row = {"listing_slug": "x", "run_date": "2026-09-20", "ale_total": "3.29",
+           "occupancy_forward_pct": "36.3", "photo_hero": "10", "reshoot_count": "8",
+           "summary_char_count": "412", "applied": None,
+           "ale_scores": None, "photo_top5": None, "amenity_gaps": None,
+           "cadence_marked": None, "funnel": None, "occupancy_monthly": None,
+           "id": 99, "created_at": "2026-09-20T00:00:00Z"}
+    r = mem.coerce_row(row)
+    assert r["ale_total"] == 3.29 and isinstance(r["ale_total"], float)
+    assert r["occupancy_forward_pct"] == 36.3
+    assert r["photo_hero"] == 10 and isinstance(r["photo_hero"], int)
+    assert r["reshoot_count"] == 8 and r["summary_char_count"] == 412
+    assert r["applied"] is False
+    assert r["ale_scores"] == [] and r["photo_top5"] == [] and r["amenity_gaps"] == []
+    assert r["funnel"] == {} and r["occupancy_monthly"] == {}
+    assert set(r) == set(mem.COLUMNS), "extra DB columns (id/created_at) leaked into the record"
+
+
+def test_coerce_row_survives_unparseable_numerics():
+    r = mem.coerce_row({"listing_slug": "x", "run_date": "d", "ale_total": "n/a"})
+    assert r["ale_total"] is None
+
+
+def test_merge_rows_pulls_remote_only_runs_down_without_disturbing_local():
+    """state/ is gitignored and per-machine, so a run made on another machine exists only
+    upstream. Pulling it down must add it and leave existing local rows alone."""
+    with tempfile.TemporaryDirectory() as tmp:
+        h = Path(tmp) / "history.jsonl"
+        mem.append_local({"listing_slug": "boho", "run_date": "2026-09-20",
+                          "ale_total": 3.29, "title": "local"}, h)
+        rows = [{"listing_slug": "apres", "run_date": "2026-07-07", "ale_total": "3.14"},
+                {"listing_slug": "boho", "run_date": "2026-09-20", "ale_total": "9.99"}]
+        s = mem.merge_rows(rows, h)
+        assert s == {"inserted": 1, "replaced": 1, "skipped": 0}, s
+        out = {(r["listing_slug"], r["run_date"]): r for r in mem.read_local(h)}
+        assert len(out) == 2
+        assert out[("apres", "2026-07-07")]["ale_total"] == 3.14
+        assert out[("boho", "2026-09-20")]["ale_total"] == 9.99, "remote should win on a re-merge"
+
+
+def test_merge_rows_skips_keyless_and_guards_pricing():
+    with tempfile.TemporaryDirectory() as tmp:
+        h = Path(tmp) / "history.jsonl"
+        s = mem.merge_rows([{"ale_total": "1.0"}], h)
+        assert s["skipped"] == 1 and s["inserted"] == 0
+        try:
+            mem.merge_rows([{"listing_slug": "x", "run_date": "d",
+                             "title": "Only $199 per night"}], h)
+        except SystemExit:
+            return
+        raise AssertionError("a priced row was merged into history")

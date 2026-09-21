@@ -1,4 +1,4 @@
-# {{ data.branding.report_title }} — {{ data.listing.name }}
+# {{ data.branding.report_title }} . {{ data.listing.name }}
 
 **{{ data.branding.company_name }}** · {{ data.listing.city }} · {{ data.run_date }}
 {% if data.listing.airbnb_url %}[View on Airbnb]({{ data.listing.airbnb_url }}){% endif %}
@@ -31,7 +31,7 @@
 {% if data.optimized.captions %}
 ### Photo Captions (recommended order)
 
-{% for c in data.optimized.captions %}- **#{{ c.order }} {{ c.subject }}** — {{ c.caption }}
+{% for c in data.optimized.captions %}- **#{{ c.order }} {{ c.subject }}** . {{ c.caption }}
 {% endfor %}
 {% endif %}
 {% if data.photos %}
@@ -39,7 +39,11 @@
 
 ## Photo Plan
 
-- **Hero:** photo #{{ data.photos.hero }}
+{% if data.photos.coverage_note %}**Coverage:** {{ data.photos.coverage_note }}
+{% endif %}
+{% if data.photos.unranked %}**Unranked photos:** {{ data.photos.unranked | join(', ') }}
+{% endif %}
+- **Hero:** {% if data.photos.hero is not none %}photo #{{ data.photos.hero }}{% else %}unavailable{% endif %}
 - **Recommended order:** {{ (data.photos.recommended_top5_order or []) | join(' → ') }}
 {% if data.photos.reshoot %}- **Reshoot:** {{ data.photos.reshoot | join(', ') }}{% endif %}
 {% if data.photos.restage %}- **Restage:** {{ data.photos.restage | join(', ') }}{% endif %}
@@ -49,10 +53,16 @@
 {% for g in data.photos.gaps %}- ⚠️ {{ g }}
 {% endfor %}{% endif %}
 {% endif %}
+{% if data.data_gaps %}
+## Data gaps
+
+{% for gap in data.data_gaps %}- {{ gap }}
+{% endfor %}
+{% endif %}
 {% if data.comps %}
 ---
 
-## Competitor Gaps — top performers by demand
+## Competitor Gaps . top performers by demand
 
 {% if data.comps.top %}
 | Competitor | Config | Reviews | Occupancy |
@@ -73,7 +83,7 @@
 {% if data.funnel %}
 ---
 
-## Funnel Diagnostic — {{ data.funnel.source }} (views = real traffic)
+## Funnel Diagnostic . {{ data.funnel.source }} (views = real traffic)
 
 {% if data.funnel.city_rank %}
 - **City rank:** #{{ data.funnel.city_rank.position }} of {{ data.funnel.city_rank.of }} (page {{ data.funnel.city_rank.page }})
@@ -88,7 +98,7 @@
 {% endif %}
 {% endif %}
 
-{% if data.funnel.ctr_vs_similar %}_CTR {{ data.funnel.ctr_vs_similar.you }} vs {{ data.funnel.ctr_vs_similar.similar }} similar — {{ data.funnel.ctr_vs_similar.note }}_{% endif %}
+{% if data.funnel.ctr_vs_similar %}_CTR {{ data.funnel.ctr_vs_similar.you }} vs {{ data.funnel.ctr_vs_similar.similar }} similar . {{ data.funnel.ctr_vs_similar.note }}_{% endif %}
 
 **Lever focus:** {{ data.funnel.lever_focus }}
 {{ data.funnel.diagnosis }}
@@ -97,9 +107,9 @@
 
 ---
 
-## Occupancy — Hospitable (live PMS · source of truth)
+## Occupancy: {{ data.occupancy.source }}
 
-- **Forward {{ data.occupancy.forward_days }} days:** {{ data.occupancy.forward_pct }}% occupancy · **{{ data.occupancy.upcoming_reservations }}** upcoming reservations
+- **Forward {{ data.occupancy.forward_days }} days:** {% if data.occupancy.forward_pct is not none %}{{ data.occupancy.forward_pct }}% occupancy{% else %}unknown (incomplete calendar){% endif %} · **{{ data.occupancy.upcoming_reservations }}** upcoming reservations
 {% if data.occupancy.monthly %}
 
 | Month | {{ data.occupancy.monthly.keys()|list|join(' | ') }} |
@@ -107,7 +117,7 @@
 | Occupancy | {{ data.occupancy.monthly.values()|list|join(' | ') }} |
 {% endif %}
 {% if data.occupancy.rankbreeze_crosscheck %}
-_RankBreeze cross-check: **{{ data.occupancy.rankbreeze_crosscheck }}** — Hospitable is the source of truth._
+_RankBreeze cross-check: **{{ data.occupancy.rankbreeze_crosscheck }}** . Use the source calendar when its availability is known._
 {% endif %}
 {% endif %}
 {% if data.diagnostics %}
@@ -130,7 +140,7 @@ _RankBreeze cross-check: **{{ data.occupancy.rankbreeze_crosscheck }}** — Hosp
 
 ---
 
-## Refresh Cadence — What's Due
+## Refresh Cadence . What's Due
 
 | Item | Last done | Next due | Status |
 |---|---|---|---|
@@ -141,4 +151,4 @@ _RankBreeze cross-check: **{{ data.occupancy.rankbreeze_crosscheck }}** — Hosp
 ---
 
 _{{ data.branding.company_name }} · {{ data.branding.tagline }} · {{ data.branding.website_url }}_
-_Paste-ready content — apply it in your PMS, or ask Claude to apply it for you where your PMS supports content updates. Pricing, calendars, and availability are never touched._
+_Paste-ready content . apply it in your PMS, or ask Claude to apply it for you where your PMS supports content updates. Pricing, calendars, and availability are never touched._

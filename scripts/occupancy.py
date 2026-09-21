@@ -30,6 +30,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from datetime import date as iso_date
 
 # availability==false reasons that mean a HOST block (excluded from occupancy).
 # Everything else that's unavailable is treated as a guest booking.
@@ -61,11 +62,15 @@ def _classify(day: dict) -> str:
     if not isinstance(st, dict):             # API shape drift: status as a string
         st = {"reason": str(st) if st is not None else ""}
     available = st.get("available")
-    reason = (st.get("reason") or "").lower()
+    reason = str(st.get("reason") or "").lower()
     # NB: "unavailable" contains "avail" — match the whole word, not a substring.
     if available is True or (available is None and reason.strip().startswith("available")):
         return "open"
-    return "blocked" if any(h in reason for h in _BLOCK_HINTS) else "booked"
+    if any(h in reason for h in _BLOCK_HINTS):
+        return "blocked"
+    if available is False or any(h in reason for h in ("booked", "reserved", "reservation", "guest confirmed")):
+        return "booked"
+    return "unknown"
 
 
 def _occ(booked: int, open_: int) -> float | None:
@@ -75,27 +80,34 @@ def _occ(booked: int, open_: int) -> float | None:
 
 def compute(days: list[dict]) -> dict:
     months: dict[str, dict] = {}
-    totals = {"booked": 0, "open": 0, "blocked": 0}
+    totals = {"booked": 0, "open": 0, "blocked": 0, "unknown": 0}
     reason_counts: dict[str, int] = {}
+    unique = {}
     for d in days:
+        if not isinstance(d, dict):
+            raise ValueError("calendar days must be objects")
         date = d.get("date") or ""
-        ym = date[:7]
+        iso_date.fromisoformat(date)
         cls = _classify(d)
-        m = months.setdefault(ym, {"booked": 0, "open": 0, "blocked": 0})
+        previous = unique.get(date)
+        unique[date] = cls if previous is None or previous == cls else "unknown"
+        r = str((d.get("status") or {}).get("reason") or "?") if isinstance(d.get("status"), dict) else "?"
+        reason_counts[r] = reason_counts.get(r, 0) + 1
+    for date, cls in sorted(unique.items()):
+        ym = date[:7]
+        m = months.setdefault(ym, {"booked": 0, "open": 0, "blocked": 0, "unknown": 0})
         m[cls] += 1
         totals[cls] += 1
-        r = (((d.get("status") if isinstance(d.get("status"), dict) else {}) or {}).get("reason") or "?")
-        reason_counts[r] = reason_counts.get(r, 0) + 1
 
     monthly = {}
     for ym in sorted(months):
         b, o, bl = months[ym]["booked"], months[ym]["open"], months[ym]["blocked"]
-        label = _MONTH.get(ym[5:7], ym) if len(ym) == 7 else ym
-        monthly[label] = {"occupancy_pct": _occ(b, o), "booked": b, "available": o, "blocked": bl}
+        monthly[ym] = {"occupancy_pct": _occ(b, o) if not months[ym]["unknown"] else None,
+                       "booked": b, "available": o, "blocked": bl, "unknown": months[ym]["unknown"]}
 
-    fwd = {"occupancy_pct": _occ(totals["booked"], totals["open"]),
+    fwd = {"occupancy_pct": _occ(totals["booked"], totals["open"]) if not totals["unknown"] else None,
            "booked": totals["booked"], "available": totals["open"], "blocked": totals["blocked"],
-           "days": len(days)}
+           "days": len(unique), "unknown": totals["unknown"]}
     return {"monthly": monthly, "forward_window": fwd, "reason_counts": reason_counts}
 
 
@@ -112,7 +124,8 @@ def crosscheck(hosp_monthly: dict, rb_arg: str | None, threshold: float = 15.0) 
                 pass
     rows, gaps = [], []
     for month, rb_val in rb.items():
-        h = (hosp_monthly.get(month) or {}).get("occupancy_pct")
+        matches = [v for k, v in hosp_monthly.items() if _norm_month(k) == month]
+        h = matches[0].get("occupancy_pct") if len(matches) == 1 else None
         gap = abs(h - rb_val) if h is not None else None
         if gap is not None:
             gaps.append(gap)
@@ -138,6 +151,7 @@ def report_block(result: dict, upcoming: int | None, cc: dict | None) -> dict:
     if cc:
         cc_str = cc["verdict"] if cc["max_gap_pts"] is None else f"{cc['verdict']} (max gap {cc['max_gap_pts']}pts)"
     return {"source": "Hospitable", "forward_pct": fwd["occupancy_pct"], "forward_days": fwd["days"],
+            "unknown_days": fwd.get("unknown", 0),
             "upcoming_reservations": upcoming if upcoming is not None else "n/a",
             "monthly": monthly_flat, "rankbreeze_crosscheck": cc_str}
 
@@ -150,13 +164,17 @@ def main():
     ap.add_argument("--divergence-threshold", type=float, default=15.0,
                     help="pts gap above which Hospitable vs RankBreeze is flagged DIVERGE (default 15)")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--source", default="Hospitable", help="PMS that supplied the staged calendar")
     args = ap.parse_args()
 
     days = _load_days(Path(args.calendar))
     if not days:
         sys.exit("[occupancy] no calendar days found in input")
-    result = {"source": "Hospitable get_property_calendar (live PMS — source of truth)"}
-    result.update(compute(days))
+    result = {"source": args.source}
+    try:
+        result.update(compute(days))
+    except (TypeError, ValueError) as e:
+        sys.exit(f"[occupancy] invalid calendar: {e}")
     if args.reservations_count is not None:
         result["upcoming_reservations"] = args.reservations_count
     cc = crosscheck(result["monthly"], args.rankbreeze, args.divergence_threshold)
@@ -164,6 +182,7 @@ def main():
         result["rankbreeze_crosscheck"] = cc
     # Ready-to-use block for result.json['occupancy'] — no hand-transform needed.
     result["report_block"] = report_block(result, args.reservations_count, cc)
+    result["report_block"]["source"] = args.source
 
     text = json.dumps(result, indent=2, ensure_ascii=False)
     if args.out:

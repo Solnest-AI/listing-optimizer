@@ -82,6 +82,35 @@ def _paginate(path: str, params: dict | None = None, max_pages: int = 20) -> lis
     return items
 
 
+def _fetch_reviews(pid: str, limit: int, all_reviews: bool) -> dict:
+    """Reviews, newest-first, capped at `limit` in ONE request by default.
+
+    Verified against the live API: reviews come back newest-first, `per_page` is honoured
+    exactly, and `meta.total` carries the LIFETIME count even on a capped page. That last
+    part matters — it lets the report say "the 20 most recent of 101" honestly without
+    paying for the other 81. Paging a 154-review listing cost 4 requests and 285KB of text
+    the copy never used.
+    """
+    if all_reviews:
+        items = _paginate(f"/properties/{pid}/reviews", {"per_page": 50}, max_pages=20)
+        total = len(items)
+        return {"data": items,
+                "_pull": {"requested": "all", "returned": len(items), "total_available": total,
+                          "complete_history": True,
+                          "note": "full lifetime history; aggregates span every review"}}
+    first = _get(f"/properties/{pid}/reviews", {"per_page": max(1, limit), "page": 1})
+    items = first.get("data") or []
+    meta = first.get("meta") or {}
+    total = meta.get("total")
+    return {"data": items,
+            "_pull": {"requested": limit, "returned": len(items),
+                      "total_available": total, "complete_history": False,
+                      "note": ("newest-first, capped to keep the pull cheap. Aggregates "
+                               "(category averages, unanswered count) span ONLY these "
+                               f"{len(items)}, not all {total if total is not None else '?'}. "
+                               "Pass --all-reviews for lifetime aggregates.")}}
+
+
 def _strip_calendar_day(day: dict) -> dict:
     """Keep ONLY date + availability/reason — drop price, min_stay, everything else."""
     st = day.get("status")
@@ -94,11 +123,21 @@ def _strip_calendar_day(day: dict) -> dict:
 def main():
     ap = argparse.ArgumentParser(description="Hospitable Public API v2 — read-only fallback (no MCP).")
     ap.add_argument("command", choices=["properties", "property", "images", "reviews",
-                                        "calendar", "reservations"])
+                                        "calendar", "reservations", "channels"])
     ap.add_argument("--property-id", dest="pid", default=None)
     ap.add_argument("--start", default=None, help="calendar start YYYY-MM-DD")
     ap.add_argument("--end", default=None, help="calendar end YYYY-MM-DD")
     ap.add_argument("--out", default=None, help="write JSON here (else stdout)")
+    # Reviews come back NEWEST-FIRST (verified against a 154-review listing) and the digest
+    # reads the 20 most recent, so we ask for exactly 20 in one request. Paging the whole
+    # history cost 4 HTTP calls and 285KB on disk for text the copy never used.
+    # --all-reviews restores lifetime paging when you want the category averages and the
+    # unanswered count computed over every review.
+    ap.add_argument("--all-reviews", action="store_true",
+                    help="page the ENTIRE review history (default: the 20 newest, 1 request)")
+    ap.add_argument("--review-limit", type=int, default=20,
+                    help="how many of the newest reviews to pull (default 20; "
+                         "ignored with --all-reviews)")
     args = ap.parse_args()
 
     needs_pid = args.command in ("property", "images", "reviews", "calendar", "reservations")
@@ -112,7 +151,28 @@ def main():
     elif args.command == "images":
         result = _get(f"/properties/{args.pid}/images")
     elif args.command == "reviews":
-        result = {"data": _paginate(f"/properties/{args.pid}/reviews", {"per_page": 50})}
+        result = _fetch_reviews(args.pid, args.review_limit, args.all_reviews)
+    elif args.command == "channels":
+        # Which booking platforms are connected, and HOW. The distinction matters: a channel
+        # linked by iCal (`platform: "ical"`, e.g. a vrbo.com/icalendar/*.ics feed) carries
+        # dates and blocks only — no guest, no messages, no reviews, ever. A real API channel
+        # (airbnb, homeaway=VRBO, booking) can carry reviews, though homeaway measurably
+        # does not. Used to tell the report which channels are SILENT on reviews.
+        raw = _get("/channels")
+        chans = raw.get("data") or []
+        connected = sorted({str(c.get("platform")) for c in chans if c.get("platform")})
+        ical = [c.get("login") or c.get("name") for c in chans
+                if str(c.get("platform")) == "ical"]
+        result = {"data": chans,
+                  "connected_platforms": connected,
+                  "ical_feeds": ical,
+                  # Channels that take bookings but never deliver review text. iCal cannot by
+                  # protocol; homeaway (VRBO) is an observed Hospitable gap — verified 2026-09-20,
+                  # 35 VRBO reservations and 0 VRBO reviews across every property and page.
+                  "silent_channels": [p for p in connected if p in ("ical", "homeaway")],
+                  "note": ("ical = calendar-only by protocol (no reviews possible). "
+                           "homeaway = VRBO; takes bookings but its reviews do not reach "
+                           "this API. Both are review-silent.")}
     elif args.command == "calendar":
         params = {}
         if args.start:
@@ -123,8 +183,25 @@ def main():
         days = ((raw.get("data") or {}).get("days")) or []
         # zero-pricing wall: strip price/min_stay BEFORE anything touches disk
         result = {"data": {"days": [_strip_calendar_day(d) for d in days]}}
-    else:  # reservations (upcoming/active only, per the API)
-        result = {"data": _paginate("/reservations", {"properties[]": args.pid, "per_page": 50})}
+    else:  # reservations
+        # SCOPE THE WINDOW EXPLICITLY. Measured 2026-09-20 on a live property: with no date
+        # filter this endpoint returned 1 reservation, while an explicit forward 90-day
+        # window returned 2 — so the unfiltered call UNDERCOUNTS upcoming stays, and calling
+        # its result "upcoming" is a guess either way. A past window (2025 H1) returned 0,
+        # confirming the filter is honoured. Pass --start/--end (normally the same window as
+        # the calendar) so the count means exactly "reservations in this window".
+        params = {"properties[]": args.pid, "per_page": 50}
+        if args.start:
+            params["start_date"] = args.start
+        if args.end:
+            params["end_date"] = args.end
+        rows = _paginate("/reservations", params)
+        result = {"data": rows,
+                  "_pull": {"window_start": args.start, "window_end": args.end,
+                            "count": len(rows),
+                            "scoped": bool(args.start and args.end),
+                            "note": ("count is reservations within the requested window; "
+                                     "unscoped calls undercount and must not be called 'upcoming'")}}
 
     text = json.dumps(result, indent=2, ensure_ascii=False)
     if args.out:
