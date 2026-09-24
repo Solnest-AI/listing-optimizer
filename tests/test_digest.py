@@ -344,3 +344,16 @@ if __name__ == "__main__":
             fn()
             print(f"✅ {name}")
     print("✅ digest tests passed")
+
+
+def test_every_prior_run_reaches_the_digest_intact(tmp_path):
+    """Raw JSON used to be cut at 1,500 chars, hiding every run after the first."""
+    long_gaps = ["x" * 300] * 4
+    runs = [{"run_date": f"2026-0{m}-01", "season": "Fall", "applied": False, "ale_total": 2.5,
+             "title": f"Title {m}", "ale_scores": [{"dimension": "A", "score": 3}],
+             "amenity_gaps": long_gaps} for m in (8, 7, 6)]
+    (tmp_path / "subject.json").write_text(json.dumps({"data": {"name": "x"}}))
+    (tmp_path / "prior_runs.json").write_text(json.dumps(runs))
+    out = bd.build(tmp_path)
+    for m in (8, 7, 6):
+        assert f'title="Title {m}"' in out, f"prior run {m} missing from digest"

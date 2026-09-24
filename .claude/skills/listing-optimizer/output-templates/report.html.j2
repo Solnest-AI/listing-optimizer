@@ -179,7 +179,7 @@
       <tr><td>Occupancy</td>{% for k in data.occupancy.monthly.keys() %}<td>{{ data.occupancy.monthly[k] }}</td>{% endfor %}</tr>
     </table>
     {% endif %}
-    {% if data.occupancy.rankbreeze_crosscheck %}<div class="muted" style="font-size:12px;margin-top:8px">RankBreeze cross-check: <strong>{{ data.occupancy.rankbreeze_crosscheck }}</strong>. Use the source calendar when its availability is known.</div>{% endif %}
+    {% if data.occupancy.rankbreeze_crosscheck and data.occupancy.rankbreeze_crosscheck != 'n/a' %}<div class="muted" style="font-size:12px;margin-top:8px">RankBreeze cross-check: <strong>{{ data.occupancy.rankbreeze_crosscheck }}</strong>. Use the source calendar when its availability is known.</div>{% endif %}
   </div>
   {% endif %}
 

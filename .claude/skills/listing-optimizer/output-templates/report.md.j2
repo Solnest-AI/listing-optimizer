@@ -116,7 +116,7 @@
 |---|{{ '---|' * (data.occupancy.monthly|length) }}
 | Occupancy | {{ data.occupancy.monthly.values()|list|join(' | ') }} |
 {% endif %}
-{% if data.occupancy.rankbreeze_crosscheck %}
+{% if data.occupancy.rankbreeze_crosscheck and data.occupancy.rankbreeze_crosscheck != 'n/a' %}
 _RankBreeze cross-check: **{{ data.occupancy.rankbreeze_crosscheck }}**. Use the source calendar when its availability is known._
 {% endif %}
 {% endif %}

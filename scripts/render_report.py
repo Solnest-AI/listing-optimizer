@@ -134,6 +134,9 @@ def _comps_block(c: dict) -> dict:
 
 # `funnel` is deliberately NOT here: it is the agent's normalized view of an optional
 # RankBreeze pull, and no raw funnel.json shape has been verified to auto-merge from.
+# Blocks in VERBATIM_BLOCKS carry third-party evidence (competitor titles) and skip the
+# writing-rule pass; every other block is our own tooling's prose and gets it.
+VERBATIM_BLOCKS = {"comps"}
 MACHINE_BLOCKS = {
     "photos": ("photo_scores.json", _photos_block),
     "comps": ("comps.json", _comps_block),
@@ -165,6 +168,8 @@ def merge_machine_blocks(data: dict, workdir: Path) -> list[str]:
             continue
         try:
             block = shape(json.loads(src.read_text(encoding="utf-8")))
+            if key not in VERBATIM_BLOCKS:
+                block = normalize_prose(block)
         except (OSError, ValueError, AttributeError, TypeError) as e:
             sys.stderr.write(f"[render_report] WARNING: {fname} unreadable or unexpected shape ({e}) — skipped\n")
             continue

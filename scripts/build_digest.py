@@ -227,11 +227,28 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
           f"asks for the lifetime number.")
 
     # ── Funnel / occupancy / prior run ────────────────────────────────
-    for name, title in (("funnel.json", "FUNNEL"), ("occupancy.json", "OCCUPANCY"),
-                        ("prior_runs.json", "PRIOR RUNS")):
+    for name, title in (("funnel.json", "FUNNEL"), ("occupancy.json", "OCCUPANCY")):
         x = _read(d, name)
         if x:
             A(f"\n# {title}\n" + json.dumps(x, ensure_ascii=False)[:1500])
+    # One compact line per prior run. Raw JSON was cut mid-record at 1,500 chars, which
+    # hid every run after the first and half of the first one's amenity gaps.
+    prior = _read(d, "prior_runs.json")
+    if isinstance(prior, list) and prior:
+        A("\n# PRIOR RUNS (most recent first)")
+        for r in prior[:3]:
+            if not isinstance(r, dict):
+                continue
+            scores = ", ".join(f"{x.get('dimension')}={x.get('score')}" for x in r.get("ale_scores") or [])
+            gaps = " | ".join(str(g)[:140] for g in (r.get("amenity_gaps") or [])[:5])
+            A(f"- {r.get('run_date')} season={r.get('season')} applied={r.get('applied')} "
+              f"ale_total={r.get('ale_total')} title={json.dumps(r.get('title'), ensure_ascii=False)} "
+              f"hero={r.get('photo_hero')} top5={r.get('photo_top5')} "
+              f"occ_forward={r.get('occupancy_forward_pct')}")
+            if scores:
+                A(f"  scores: {scores}")
+            if gaps:
+                A(f"  amenity_gaps: {gaps}")
 
     return "\n".join(out)
 

@@ -237,3 +237,24 @@ def test_cadence_survives_a_corrupt_state_file(tmp_path, monkeypatch):
     cadence.STATE_PATH.write_text("{oops")
     rows = cadence.check("x", datetime.date(2026, 9, 21))
     assert rows and all(r["status"] == "DUE" for r in rows)
+
+
+def test_machine_notes_from_disk_follow_punctuation_rule(tmp_path):
+    """Photo gap notes come from our own scripts, not evidence, so the writing rule applies
+    even when they are merged from disk. Competitor titles stay verbatim."""
+    (tmp_path / "pipeline_status.json").write_text(json.dumps({"status": "ready",
+        "excluded_files": [], "steps": [], "listing_slug": "cabin", "run_date": "2026-09-20"}))
+    (tmp_path / "photo_scores.json").write_text(json.dumps({"hero": 0, "photos": [],
+        "gaps": ["No map photo — create one."]}))
+    (tmp_path / "occupancy.json").write_text(json.dumps({"report_block": {
+        "source": "Hospitable", "forward_pct": 10, "forward_days": 30,
+        "upcoming_reservations": 1, "monthly": {}, "rankbreeze_crosscheck": "n/a"}}))
+    (tmp_path / "result.json").write_text(json.dumps(report_data()))
+    subprocess.run([sys.executable, str(ROOT / "scripts/render_report.py"),
+        "--data", str(tmp_path / "result.json"), "--workdir", str(tmp_path),
+        "--listing-slug", "cabin", "--date", "2026-09-20",
+        "--out-base", str(tmp_path / "reports")], check=True, capture_output=True, text=True)
+    for name in ("report.md", "report.html"):
+        text = (tmp_path / "reports/cabin/2026-09-20" / name).read_text()
+        assert "—" not in text and "No map photo. create one." in text
+        assert "cross-check" not in text, "an unsupplied cross-check must not render"
