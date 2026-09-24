@@ -27,10 +27,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
-from pathlib import Path
 from datetime import date as iso_date
+from pathlib import Path
 
 # availability==false reasons that mean a HOST block (excluded from occupancy).
 # Everything else that's unavailable is treated as a guest booking.
@@ -118,10 +119,8 @@ def crosscheck(hosp_monthly: dict, rb_arg: str | None, threshold: float = 15.0) 
     for part in rb_arg.split(","):
         if ":" in part:
             k, v = part.split(":", 1)
-            try:
+            with contextlib.suppress(ValueError):
                 rb[_norm_month(k)] = float(v.strip().rstrip("%"))
-            except ValueError:
-                pass
     rows, gaps = [], []
     for month, rb_val in rb.items():
         matches = [v for k, v in hosp_monthly.items() if _norm_month(k) == month]
@@ -189,8 +188,6 @@ def main():
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(text, encoding="utf-8")
         fwd = result["forward_window"]
-        print(f"[occupancy] forward {fwd['days']}d: {fwd['occupancy_pct']}% occ "
-              f"({fwd['booked']} booked / {fwd['available']} open / {fwd['blocked']} blocked) → {args.out}")
         # Surface classification so the operator notices if reasons are being guessed.
         nonstd = {r: c for r, c in result["reason_counts"].items() if r not in ("AVAILABLE", "?")}
         if nonstd:
@@ -198,6 +195,9 @@ def main():
         if cc:
             print(f"[occupancy] vs RankBreeze: {cc['verdict']}"
                   + (f" (max gap {cc['max_gap_pts']}pts)" if cc['max_gap_pts'] is not None else ""))
+        # Summary last: run_pipeline shows the final line as the step detail.
+        print(f"[occupancy] forward {fwd['days']}d: {fwd['occupancy_pct']}% occ "
+              f"({fwd['booked']} booked / {fwd['available']} open / {fwd['blocked']} blocked) → {args.out}")
     else:
         print(text)
 

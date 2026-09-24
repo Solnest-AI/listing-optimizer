@@ -9,8 +9,8 @@ uncommitted changes were retained and reviewed as the starting point.
 - Missing/invalid subjects stop before paid work. CLI arguments are validated early.
   A failed refresh invalidates its old artifacts across retries. Changed source data and
   scoring limits rebuild derived outputs instead of silently reusing old output files.
-- Staged calendars do not invoke Hospitable. Routine gathering no longer pages reservation
-  history simply to produce an unverified upcoming-reservation count.
+- Staged calendars do not invoke Hospitable. The reservation count is scoped to the
+  calendar window, so it no longer undercounts upcoming stays.
 - Photo scoring groups five distinct images into one request, with bounded payloads,
   bounded transient retries, permanent-error cancellation, validated scores and real usage
   counters. API keys use the request header. Duplicate URLs are scored once.
@@ -33,13 +33,14 @@ uncommitted changes were retained and reviewed as the starting point.
 - Local history and cache updates are locked across concurrent processes. History upserts
   retain malformed lines and replace the same listing/date record safely.
 - The skill distinguishes drafted copy from applied content. Cadence is marked only after
-  the live listing changes. Supabase remains explicit opt-in.
+  the live listing changes.
 - CLAUDE.md plus the skill shrank from 61,630 to 18,148 bytes, a 70.6% reduction in instruction
   text. This is a byte measurement, not a tokenizer measurement or bill estimate.
 
 ## Validation
 
-The complete test suite passed: **154 tests**. New regression tests were run against the
+The complete test suite passed: **154 tests** (149 after the 2026-09-21 MVP cut, which
+removed the unused Supabase mirror and its tests, and added four regression tests). New regression tests were run against the
 old behavior first and failed for the reproduced defects. Python compilation and
 `git diff --check` also passed.
 

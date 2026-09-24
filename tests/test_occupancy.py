@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-import occupancy as occ  # noqa: E402
+import occupancy as occ
 
 
 def day(date, available=None, reason=""):

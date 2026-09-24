@@ -155,3 +155,66 @@ def test_photo_limit_discloses_unassessed_gallery(monkeypatch, tmp_path):
     result = json.loads((tmp_path / "scores.json").read_text())
     assert result["gallery_count"] == 10 and result["not_submitted_count"] == 5
     assert "5 not assessed" in result["coverage_note"]
+
+
+# ── Claude-vision fallback ──────────────────────────────────────────────
+def _run_main(monkeypatch, tmp_path, *extra):
+    monkeypatch.setattr(sys, "argv", ["analyze_photos.py", "--photos", str(tmp_path / "images.json"),
+                                      "--out", str(tmp_path / "photo_scores.json"), "--no-cache", *extra])
+    try:
+        ap.main()
+        return 0
+    except SystemExit as e:
+        return e.code if isinstance(e.code, int) else 1
+
+
+def _gallery(tmp_path, n=3):
+    (tmp_path / "images.json").write_text(json.dumps({"data": photos(n)}))
+
+
+def test_no_key_writes_a_usable_fallback_instead_of_dying(monkeypatch, tmp_path):
+    _gallery(tmp_path)
+    transport(monkeypatch)
+    for var in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    assert _run_main(monkeypatch, tmp_path) != 0
+    m = json.loads((tmp_path / ap.FALLBACK_MANIFEST).read_text())
+    assert [p["order"] for p in m["photos"]] == [0, 1, 2]
+    assert all(Path(p["local_path"]).read_bytes() == b"image" for p in m["photos"])
+    assert "subject_kind" in m["schema"]["required"] and m["rubric"] == ap.RUBRIC
+
+
+def test_agent_scores_complete_the_ranking_with_the_same_rules(monkeypatch, tmp_path):
+    _gallery(tmp_path)
+    transport(monkeypatch)
+    for var in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    kinds = ["hot_tub", "kitchen_dining", "living_room"]
+    rows = [{**row(i, subject_kind=kinds[i], technical=5 - i), "url": f"https://images.test/{i}.jpg"}
+            for i in range(3)]
+    (tmp_path / ap.AGENT_SCORES).write_text(json.dumps({"data": rows}))
+    assert _run_main(monkeypatch, tmp_path) == 0
+    out = json.loads((tmp_path / "photo_scores.json").read_text())
+    assert out["scored_count"] == 3 and out["scored_by"] == {"gemini": 0, "claude_vision": 3}
+    assert out["hero"] == 0 and len(out["top5_beats"]) == 3
+    assert "Claude-vision" in out["coverage_note"]
+    assert not (tmp_path / ap.FALLBACK_MANIFEST).exists(), "stale fallback left behind"
+
+
+def test_gemini_outage_falls_back_only_for_the_failed_photos(monkeypatch, tmp_path):
+    _gallery(tmp_path)
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-test-key")
+    transport(monkeypatch, transform=lambda x: {**x, "technical": 9} if x.get("order") == 1 else x)
+    assert _run_main(monkeypatch, tmp_path) == 0
+    m = json.loads((tmp_path / ap.FALLBACK_MANIFEST).read_text())
+    assert [p["order"] for p in m["photos"]] == [1], "only the unscored photo needs the fallback"
+
+
+def test_stale_or_invalid_agent_scores_are_rejected(tmp_path):
+    gallery = photos(2)
+    path = tmp_path / ap.AGENT_SCORES
+    path.write_text(json.dumps({"data": [
+        {**row(0), "url": "https://images.test/REPLACED.jpg"},
+        {**row(1, technical=7), "url": "https://images.test/1.jpg"}]}))
+    scored, rejected = ap.load_agent_scores(path, gallery)
+    assert scored == [] and len(rejected) == 2

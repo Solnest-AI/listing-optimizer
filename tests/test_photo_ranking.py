@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-import analyze_photos as ap  # noqa: E402
+import analyze_photos as ap
 
 
 def _p(order, avg, kind, people=False, is_map=False, flags=None):

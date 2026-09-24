@@ -1,19 +1,12 @@
 #!/usr/bin/env python3
 """
-cache.py — tiny local TTL cache shared by the paid/slow steps of the pipeline.
-
-Why this exists: nothing in the optimizer used to be cached, so every run re-bought
-the same AirROI comp pool and re-scored the same unchanged photos with Gemini.
-Measured churn on a real listing (boho-bliss, 4 runs): 1 day apart = byte-identical
-comp pool (10/10 top comps, 0.0pt amenity drift); 7 days = 9/10 + 1.5pt; 8 weeks =
-8/10 + 2.3pt. A two-week TTL is well inside the noise the ALE rubric can resolve.
+cache.py — tiny local TTL cache shared by the paid steps (AirROI comps, Gemini scores).
 
 Store: state/cache/<namespace>.json (state/ is gitignored — this never leaves the box).
 Shape: {"<key>": {"saved": "<iso8601 UTC>", "value": <any JSON>}}
 
-Deliberately dependency-free, single-process, and fail-open: a corrupt or unreadable
-cache file is treated as a miss, never as an error. A cache must never be able to
-break a run — the worst it may do is cost a call we would have made anyway.
+Fail-open: a corrupt or unreadable cache file is a miss, never an error. The worst a
+cache failure can do is cost a call we would have made anyway.
 """
 from __future__ import annotations
 
@@ -50,7 +43,7 @@ def _load(namespace: str) -> dict:
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {}
-    except Exception:
+    except (OSError, ValueError):
         return {}  # missing or corrupt == miss, never an error
 
 
@@ -64,38 +57,31 @@ def _save(namespace: str, data: dict) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(data, fh, ensure_ascii=False)
         os.replace(tmp, p)
-    except Exception:
+    except (OSError, TypeError, ValueError):
         pass  # a cache that cannot write is still a working pipeline
+
+
+def _saved_at(entry) -> datetime | None:
+    if not isinstance(entry, dict) or "value" not in entry:
+        return None
+    try:
+        saved = datetime.fromisoformat(str(entry.get("saved")))
+    except ValueError:
+        return None
+    return saved if saved.tzinfo else saved.replace(tzinfo=timezone.utc)
 
 
 def get(namespace: str, key: str, ttl_days: float):
     """Return the cached value, or None on miss / expiry / disabled."""
     if disabled() or ttl_days <= 0:
         return None
-    entry = _load(namespace).get(key)
-    if not isinstance(entry, dict) or "value" not in entry:
-        return None
-    try:
-        saved = datetime.fromisoformat(str(entry.get("saved")))
-        if saved.tzinfo is None:
-            saved = saved.replace(tzinfo=timezone.utc)
-    except Exception:
-        return None
-    if datetime.now(timezone.utc) - saved > timedelta(days=ttl_days):
-        return None
-    return entry["value"]
+    return get_many(namespace, [key], ttl_days).get(key)
 
 
 def age_days(namespace: str, key: str) -> float | None:
     """How old the cached entry is, for honest reporting ('cache hit, 3d old')."""
-    entry = _load(namespace).get(key)
-    if not isinstance(entry, dict):
-        return None
-    try:
-        saved = datetime.fromisoformat(str(entry.get("saved")))
-        if saved.tzinfo is None:
-            saved = saved.replace(tzinfo=timezone.utc)
-    except Exception:
+    saved = _saved_at(_load(namespace).get(key))
+    if saved is None:
         return None
     return round((datetime.now(timezone.utc) - saved).total_seconds() / 86400, 2)
 
@@ -113,17 +99,9 @@ def get_many(namespace: str, keys: list[str], ttl_days: float) -> dict:
     now = datetime.now(timezone.utc)
     out = {}
     for k in keys:
-        entry = data.get(k)
-        if not isinstance(entry, dict) or "value" not in entry:
-            continue
-        try:
-            saved = datetime.fromisoformat(str(entry.get("saved")))
-            if saved.tzinfo is None:
-                saved = saved.replace(tzinfo=timezone.utc)
-        except Exception:
-            continue
-        if now - saved <= timedelta(days=ttl_days):
-            out[k] = entry["value"]
+        saved = _saved_at(data.get(k))
+        if saved is not None and now - saved <= timedelta(days=ttl_days):
+            out[k] = data[k]["value"]
     return out
 
 
@@ -153,5 +131,5 @@ def clear(namespace: str | None = None) -> None:
         elif CACHE_DIR.exists():
             for f in CACHE_DIR.glob("*.json"):
                 f.unlink(missing_ok=True)
-    except Exception:
+    except OSError:
         pass

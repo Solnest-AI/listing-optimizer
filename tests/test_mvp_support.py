@@ -11,10 +11,10 @@ from jinja2 import Environment, FileSystemLoader
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-import build_digest as bd
-import memory
-import occupancy as occ
-import render_report as rr
+import build_digest as bd  # noqa: E402
+import memory  # noqa: E402
+import occupancy as occ  # noqa: E402
+import render_report as rr  # noqa: E402
 
 
 def test_long_description_cannot_hide_structural_facts(tmp_path):
@@ -197,3 +197,43 @@ def test_review_channel_gaps_are_limited_to_account_and_sample(tmp_path):
     digest = bd.build(tmp_path)
     assert "account-level" in digest and "retrieved review sample" in digest
     assert "never reach" not in digest and "these channels take bookings" not in digest
+
+
+def test_competitor_titles_are_evidence_and_stay_verbatim(tmp_path):
+    """The em-dash rule applies to the agent's copy, never to evidence pulled from disk.
+    A second normalize pass after the merge used to rewrite 'Cabin — Hot Tub' as
+    'Cabin. Hot Tub' in the rendered report."""
+    (tmp_path / "pipeline_status.json").write_text(json.dumps({"status": "ready",
+        "excluded_files": [], "steps": [], "listing_slug": "cabin", "run_date": "2026-09-20"}))
+    (tmp_path / "comps.json").write_text(json.dumps({"comp_count": 1, "top_comps": [
+        {"name": "Lakeview Cabin — Hot Tub", "airbnb_url": "https://a", "bedrooms": 2,
+         "baths": 1, "guests": 4, "ratings": {"num_reviews": 1, "rating_overall": 5},
+         "performance": {}}]}), encoding="utf-8")
+    data = report_data()
+    data["optimized"]["summary"] = "Relax—unwind."
+    (tmp_path / "result.json").write_text(json.dumps(data))
+    subprocess.run([sys.executable, str(ROOT / "scripts/render_report.py"),
+        "--data", str(tmp_path / "result.json"), "--workdir", str(tmp_path),
+        "--listing-slug", "cabin", "--date", "2026-09-20",
+        "--out-base", str(tmp_path / "reports")], check=True, capture_output=True, text=True)
+    md = (tmp_path / "reports/cabin/2026-09-20/report.md").read_text()
+    assert "Lakeview Cabin — Hot Tub" in md, "competitor title was rewritten"
+    assert "Relax. unwind." in md, "agent copy must still follow the rule"
+
+
+def test_digest_survives_a_corrupt_status_file(tmp_path):
+    """build_digest.py is rerun by hand after an optional funnel pull; a corrupt
+    pipeline_status.json must degrade, not traceback."""
+    (tmp_path / "subject.json").write_text(json.dumps({"data": {"name": "x"}}))
+    (tmp_path / "pipeline_status.json").write_text("{not json")
+    assert "# SUBJECT" in bd.build(tmp_path)
+
+
+def test_cadence_survives_a_corrupt_state_file(tmp_path, monkeypatch):
+    import datetime
+
+    import cadence
+    monkeypatch.setattr(cadence, "STATE_PATH", tmp_path / "refresh_state.json")
+    cadence.STATE_PATH.write_text("{oops")
+    rows = cadence.check("x", datetime.date(2026, 9, 21))
+    assert rows and all(r["status"] == "DUE" for r in rows)

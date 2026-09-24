@@ -2,19 +2,19 @@
 """
 render_report.py — render the optimized listing into HTML + Markdown + paste block.
 
-Input  : a result JSON (produced by the optimizer/SKILL) — see SKILL.md for the shape.
+Input  : a result JSON (authored by the agent) — see SKILL.md for the shape.
 Output : <out-base>/<listing-slug>/<date>/{report.html, report.md, paste-block.txt}
-         Default out-base = ~/Desktop/Listing Optimizer  (local-only while testing).
+         Default out-base = ~/Desktop/Listing Optimizer
 
 Templates: .claude/skills/listing-optimizer/output-templates/{report.html.j2, report.md.j2}
 Branding : branding.json (project root) unless --branding given.
 
-ZERO-PRICING GUARDRAIL: after rendering, every output is scanned for price/ADR/
-min-stay terms. If any are found, the render FAILS — nothing leaves with pricing in it.
+ZERO-PRICING GUARDRAIL: every output is scanned for price/ADR/min-stay terms after
+rendering. Any hit fails the render — nothing leaves with pricing in it.
 
 Usage:
-  python scripts/render_report.py --data result.json --listing-slug my-listing \
-      --date 2026-06-06
+  python scripts/render_report.py --data result.json --workdir output/<date>/<slug> \
+      --listing-slug my-listing --date 2026-06-06
 """
 from __future__ import annotations
 
@@ -22,21 +22,20 @@ import argparse
 import json
 import re
 import sys
-from pathlib import Path
 from datetime import date
-
-import artifacts
+from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
+
+import artifacts
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = ROOT / ".claude" / "skills" / "listing-optimizer" / "output-templates"
 DEFAULT_OUT_BASE = Path.home() / "Desktop" / "Listing Optimizer"
+SLUG_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
-# Words/patterns that must NEVER appear in a deliverable (zero-pricing rule).
-# Deliberately does NOT match bare "rate"/"rates"/"nightly"/"per" — the funnel
-# section legitimately uses "Booking rate", "Click-through rate", "occupancy".
-# Only price-bearing forms match. Tested in tests/test_guardrail.py.
+# Strict scan for paste content: no price words at all. Deliberately does NOT match bare
+# "rate"/"nightly"/"per" — the funnel section legitimately says "Booking rate".
 PRICING_RE = re.compile(r"""(?ix)
     (?:
         \bpriced?\b | \bpricing\b | \badr\b | \brevpar\b | \brevenue\b
@@ -54,10 +53,9 @@ PRICING_RE = re.compile(r"""(?ix)
     )
 """)
 
-# Report-only scan: blocks actual price DATA (numbers/currency/rates) but ALLOWS the
-# bare meta-words "pricing"/"revenue"/"rate" so the qualitative Diagnostics & Handoff
-# section can say e.g. "this is a pricing/availability lever — run revenue-manager".
-# The paste content (paste-block.txt) is always scanned with the strict PRICING_RE.
+# Report scan: blocks price DATA (numbers/currency/rates) but allows the meta-words
+# "pricing"/"revenue" so the qualitative Diagnostics & Handoff section can name a
+# pricing lever. memory.py imports this same pattern for the history record.
 PRICE_NUMBER_RE = re.compile(r"""(?ix)
     (?:
         [$€£¥₹]\s?\d
@@ -76,11 +74,9 @@ PRICE_NUMBER_RE = re.compile(r"""(?ix)
 
 def build_paste_block(data: dict) -> str:
     o = data.get("optimized", {})
-    lines = []
-    lines.append(f"=== {data.get('listing', {}).get('name', 'Listing')}: Optimized Content ===")
-    lines.append(f"(Generated {data.get('run_date', '')} · paste into your PMS; it syncs to your channels)\n")
-    lines.append("--- TITLE ---")
-    lines.append(o.get("title", "").strip() + "\n")
+    lines = [f"=== {data.get('listing', {}).get('name', 'Listing')}: Optimized Content ===",
+             f"(Generated {data.get('run_date', '')} · paste into your PMS; it syncs to your channels)\n",
+             "--- TITLE ---", o.get("title", "").strip() + "\n"]
     sc = o.get("summary_char_count")
     lines.append(f"--- SUMMARY ({sc} chars) ---" if sc else "--- SUMMARY ---")
     lines.append(o.get("summary", "").strip() + "\n")
@@ -90,8 +86,7 @@ def build_paste_block(data: dict) -> str:
     if caps:
         lines.append("--- PHOTO CAPTIONS (recommended order) ---")
         for c in caps:
-            order = c.get("order")
-            subj = c.get("subject", "")
+            order, subj = c.get("order"), c.get("subject", "")
             tag = f"[#{order} {subj}]" if order is not None else f"[{subj}]"
             lines.append(f"{tag} {c.get('caption', '').strip()}")
     return "\n".join(lines).rstrip() + "\n"
@@ -101,13 +96,10 @@ def guardrail_scan(name: str, text: str, rx=PRICING_RE) -> list[str]:
     return [f"{name}: '{m.group(0)}'" for m in rx.finditer(text)]
 
 
-# ── Machine blocks: assembled from disk, never retyped by the model ───
-# Measured on two real runs, 46% and 49% of result.json was the model hand-copying data
-# that already sat in photo_scores.json / comps.json / funnel.json / occupancy.json /
-# cadence.json (11.3KB of 24.1KB, 10.9KB of 21.8KB). That is ~2,800 output tokens per run
-# of pure transcription, at output-token prices, and every retyped number is a chance to
-# silently miscopy a rating or an occupancy figure into the deliverable. The model should
-# only author what it reasoned about: the scorecard, the copy, the captions, the diagnosis.
+# ── Machine blocks: assembled from disk, never retyped by the agent ───
+# Measured on two real runs, ~47% of result.json was the agent hand-copying numbers that
+# already sat in photo_scores.json / comps.json / occupancy.json / cadence.json. Every
+# retyped number is a chance to miscopy. The agent authors only what it reasoned about.
 def _photos_block(ps: dict) -> dict:
     return {
         "hero": ps.get("hero"),
@@ -126,6 +118,8 @@ def _photos_block(ps: dict) -> dict:
 
 
 def _comps_block(c: dict) -> dict:
+    # amenity_gaps stays the agent's call: it needs the subject's amenity list to decide
+    # what is genuinely missing vs. present-but-buried.
     return {
         "comp_count": c.get("comp_count"),
         "ranking_basis": c.get("ranking_basis"),
@@ -135,18 +129,11 @@ def _comps_block(c: dict) -> dict:
                  "performance": t.get("performance") or {}}
                 for t in (c.get("top_comps") or [])],
         "title_patterns": c.get("comp_title_samples") or [],
-        # amenity_gaps stays the model's call: it needs the subject's amenity list to
-        # decide what is genuinely missing vs. present-but-buried.
     }
 
 
-# Verified against two real runs: occupancy.json's `report_block` and cadence.json's
-# `due` were BYTE-IDENTICAL to what the model had retyped into result.json.
-#
-# `funnel` is deliberately NOT here. result.json's funnel block is a model-NORMALIZED view
-# of the RankBreeze pull (city_rank / views_monthly / ctr_vs_similar / lever_focus /
-# diagnosis), and no run on disk had a funnel.json to verify the raw shape against, so
-# auto-merging it would be a guess. It stays model-authored until someone measures it.
+# `funnel` is deliberately NOT here: it is the agent's normalized view of an optional
+# RankBreeze pull, and no raw funnel.json shape has been verified to auto-merge from.
 MACHINE_BLOCKS = {
     "photos": ("photo_scores.json", _photos_block),
     "comps": ("comps.json", _comps_block),
@@ -156,9 +143,8 @@ MACHINE_BLOCKS = {
 
 
 def merge_machine_blocks(data: dict, workdir: Path) -> list[str]:
-    """Fill any MISSING machine block from the working dir. Never overwrites the model's
-    own value — if it chose to author a block, that wins (e.g. amenity_gaps inside comps).
-    Returns the names filled, for reporting."""
+    """Fill any MISSING machine block from the working dir. Never overwrites the agent's
+    own value. Returns the names filled, for reporting."""
     filled = []
     status = artifacts.run_status(workdir)
     if status.get("status") in ("running", "failed"):
@@ -178,21 +164,16 @@ def merge_machine_blocks(data: dict, workdir: Path) -> list[str]:
         if not src.exists():
             continue
         try:
-            raw = json.loads(src.read_text(encoding="utf-8"))
-        except Exception as e:
-            sys.stderr.write(f"[render_report] WARNING: {fname} unreadable ({e}) — skipped\n")
-            continue
-        try:
-            block = shape(raw)
-        except Exception as e:
-            sys.stderr.write(f"[render_report] WARNING: {fname} unexpected shape ({e}) — skipped\n")
+            block = shape(json.loads(src.read_text(encoding="utf-8")))
+        except (OSError, ValueError, AttributeError, TypeError) as e:
+            sys.stderr.write(f"[render_report] WARNING: {fname} unreadable or unexpected shape ({e}) — skipped\n")
             continue
         existing = data.get(key)
         if not isinstance(existing, dict):
             data[key] = block
             filled.append(key)
         else:
-            # Merge key-by-key so the model can author one field of a block (comps.
+            # Merge key-by-key so the agent can author one field of a block (comps.
             # amenity_gaps) and still inherit the machine-generated rest.
             added = [k for k, v in block.items() if k not in existing or existing[k] in (None, [], {}, "")]
             for k in added:
@@ -233,13 +214,16 @@ def validate_result(data: dict) -> None:
 
 
 def normalize_prose(value, key=""):
-    """Apply the writing rule to human text while preserving URLs verbatim."""
+    """Apply the no-em-dash writing rule to AGENT-AUTHORED text, preserving URLs.
+
+    Only ever run on result.json before machine blocks are merged: competitor titles and
+    other evidence pulled from disk must stay verbatim."""
     if isinstance(value, dict):
         return {k: normalize_prose(v, k) for k, v in value.items()}
     if isinstance(value, list):
         return [normalize_prose(v, key) for v in value]
     if isinstance(value, str) and not key.endswith("url"):
-        return re.sub(r"\s*\u2014\s*", ". ", value)
+        return re.sub(r"\s*—\s*", ". ", value)
     return value
 
 
@@ -251,13 +235,12 @@ def main():
     ap.add_argument("--out-base", default=str(DEFAULT_OUT_BASE))
     ap.add_argument("--branding", default=str(ROOT / "branding.json"))
     ap.add_argument("--workdir", default=None,
-                    help="output/<DATE>/<SLUG> — merge the machine-generated blocks "
-                         "(photos/comps/funnel/occupancy/cadence) from disk instead of "
-                         "requiring them in --data. Anything already in --data wins.")
+                    help="output/<DATE>/<SLUG> — merge photos/comps/occupancy/cadence from "
+                         "disk. Anything already in --data wins.")
     args = ap.parse_args()
     try:
         date.fromisoformat(args.date)
-        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", args.listing_slug):
+        if not SLUG_RE.fullmatch(args.listing_slug):
             raise ValueError("invalid listing slug")
         data = normalize_prose(json.loads(Path(args.data).read_text(encoding="utf-8")))
         validate_result(data)
@@ -267,31 +250,27 @@ def main():
             merged = merge_machine_blocks(data, Path(args.workdir))
             if merged:
                 print(f"[render_report] merged from disk: {', '.join(merged)}")
-            data = normalize_prose(data)
     except (OSError, ValueError) as e:
         sys.exit(f"[render_report] invalid result: {e}")
-    # branding.json is per-user (gitignored); fall back to the shipped template.
+    # branding.json is per-user (gitignored); fall back to the shipped example.
     bpath = Path(args.branding)
     if not bpath.exists():
         bpath = ROOT / "branding.example.json"
-    branding = json.loads(bpath.read_text(encoding="utf-8"))
-    data["branding"] = branding
+    data["branding"] = json.loads(bpath.read_text(encoding="utf-8"))
 
-    # autoescape must fire for the HTML template (files end in .html.j2, which
-    # select_autoescape(["html"]) does NOT match) — escape HTML, not Markdown.
+    # Templates end in .html.j2, which select_autoescape(["html"]) does NOT match, so
+    # decide autoescape by suffix: escape HTML, not Markdown.
     env = Environment(
         loader=FileSystemLoader(str(TEMPLATES_DIR)),
-        autoescape=lambda name: bool(name) and name.endswith((".html.j2", ".html", ".xml.j2", ".xml")),
+        autoescape=lambda name: bool(name) and name.endswith((".html.j2", ".html")),
         trim_blocks=True, lstrip_blocks=True,
     )
     html = env.get_template("report.html.j2").render(data=data)
     md = env.get_template("report.md.j2").render(data=data)
     paste = build_paste_block(data)
 
-    # ── Guardrail ──
-    # Paste content goes verbatim into the PMS → word-STRICT (no price words at all).
-    # The report carries a qualitative diagnostics/handoff section → scan for price
-    # NUMBERS only (the meta-words "pricing"/"revenue-manager" are allowed there).
+    # Paste content goes verbatim into the PMS: word-strict. Reports carry a qualitative
+    # handoff section: numbers-only scan.
     hits = (guardrail_scan("paste-block.txt", paste, PRICING_RE)
             + guardrail_scan("report.html", html, PRICE_NUMBER_RE)
             + guardrail_scan("report.md", md, PRICE_NUMBER_RE))

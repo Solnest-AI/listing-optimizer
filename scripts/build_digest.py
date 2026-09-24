@@ -2,14 +2,8 @@
 """
 build_digest.py — collapse the raw pipeline files into the ONE file the optimizer reads.
 
-This used to be a ~100-line Python heredoc pasted inside SKILL.md, which meant the model
-read it AND re-emitted it verbatim on every single run (~1.2k tokens in, ~1.2k out, plus
-the standing risk of a transcription slip silently changing the digest). It is a script
-now; the skill calls it in one line.
-
-The raw files total ~350KB (~89k tokens) on a real listing and would be re-sent on every
-remaining turn of the run. This collapses them to ~18KB (~4.5k tokens) with no loss the
-ALE / SB7 rubrics care about.
+The raw files total ~350KB on a real listing. This collapses them to ~15KB with no loss
+the ALE / SB7 rubrics care about.
 
 Usage:
   python scripts/build_digest.py output/2026-09-20/my-listing
@@ -30,15 +24,25 @@ SUBJECT_TRUNC = 6000
 RAW_FILES = ("subject.json", "comps.json", "photo_scores.json", "reviews.json")
 
 
+def _status(d: Path) -> dict:
+    try:
+        return artifacts.run_status(d)
+    except (OSError, ValueError) as e:
+        print(f"[digest] WARNING: pipeline_status.json is unreadable ({e}); treating every "
+              f"file as usable", file=sys.stderr)
+        return {}
+
+
 def _read(d: Path, name: str):
-    if artifacts.excluded(d, name):
+    status = _status(d)
+    if status.get("status") in ("running", "failed") or name in status.get("excluded_files", []):
         return None
     p = d / name
     if not p.exists():
         return None
     try:
         return json.loads(p.read_text(encoding="utf-8"))
-    except Exception as e:
+    except (OSError, ValueError) as e:
         print(f"[digest] WARNING: {name} is unreadable ({e}) — section omitted", file=sys.stderr)
         return None
 
@@ -49,7 +53,7 @@ def _lit(s):
         return s
     try:
         return ast.literal_eval(s) if isinstance(s, str) else {}
-    except Exception:
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
         return {}
 
 
@@ -63,35 +67,14 @@ def _num(v):
 def _scale_divisor(review: dict) -> float:
     """How much to divide this review's category ratings by to land on a 0-5 scale.
 
-    Channels do NOT share a scale, and averaging them raw produced impossible numbers: the
-    boho-bliss report showed cleanliness 5.5/5 and location 5.45/5, while staff read 1.38
-    and services 0.0 — a fabricated facilities crisis on a listing whose Airbnb cleanliness
-    is 4-5. Measured across a real 101-review history:
-        airbnb  (92) categories 1-5,  rating_platform_original / rating = 1.0
-        booking  (8) categories 1-10, rating_platform_original / rating = 2.0 exactly
-        direct   (1) categories 1-5,  = 1.0
-    So the divisor comes from the review's OWN payload rather than a hardcoded channel
-    table. Those three are the ONLY channels that reach us. Verified 2026-09-20 across all 8
-    properties, every page: 334 reviews = airbnb 322 / booking 11 / direct 1.
+    Channels do NOT share a scale: airbnb and direct rate categories 1-5, booking 1-10
+    (rating_platform_original / rating = 2.0 exactly). Averaging them raw produced a
+    cleanliness of 5.5/5. The divisor comes from the review's OWN payload, with a >5
+    category as the fallback signal; anything else trips the SCALE WARNING below.
 
-    VRBO IS CONNECTED BUT ITS REVIEWS NEVER ARRIVE — do not read the absence as "no VRBO".
-    Hospitable exposes VRBO as `homeaway`, and this account has a real homeaway API channel
-    on 7 properties producing 35 reservations, plus 4 `vrbo.com/icalendar/*.ics` feeds on
-    `platform: "ical"`. iCal is a calendar protocol: dates and blocks only, so those four can
-    never carry a review. The homeaway API channel delivers reservations but returns no
-    reviews from /properties/{id}/reviews (confirmed independently via the Hospitable MCP's
-    own aggregation: the strings "vrbo"/"homeaway" appear 0 times in the full review dump),
-    and reservation objects carry no review/rating field. So VRBO guest language is a REAL
-    GAP in the optimizer's inputs, not an absent channel.
-
-    If VRBO reviews ever start arriving: VRBO rates 1-5, so the derived factor should be 1.0
-    — but that is UNVERIFIED, so check it against a real payload before trusting an average.
-    A channel on some other scale hits the >5 fallback, and if even that fails
-    `build_digest.py` prints a SCALE WARNING rather than a confident impossible number.
-
-    Also note Hospitable emits ALL nine category keys on EVERY review and zero-fills the
-    ones the channel does not use, which is why unrated must be dropped: `staff`,
-    `facilities` and `services` were hard 0 on all 264 Airbnb reviews.
+    Hospitable zero-fills every category key a channel does not use, which is why a 0
+    is treated as unrated. VRBO (`homeaway`) is connected but its reviews never reach
+    this API, so VRBO guest language is a real gap, not an absent channel.
     """
     pub = _lit(review.get("public"))
     rating, original = _num(pub.get("rating")), _num(pub.get("rating_platform_original"))
@@ -122,7 +105,7 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
         if isinstance(subject[key], str) and len(subject[key]) > limit:
             subject[key] = subject[key][:limit] + " [truncated; remaining text available in subject.json]"
     A("# SUBJECT\n" + json.dumps(subject, ensure_ascii=False))
-    status = artifacts.run_status(d)
+    status = _status(d)
     problems = [s for s in status.get("steps", []) if s.get("status") == "FAILED"]
     if problems:
         A("DATA GAPS: " + "; ".join(f"{s['name']}: {s['detail']}" for s in problems))
@@ -160,15 +143,21 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
         A(f"UNRANKED (failed scoring): {[f.get('order') for f in p['failed']]}")
     if p.get("distinct_beats"):
         A(f"distinct_beats_in_gallery: {p['distinct_beats']}")
-    # The per-photo avgs below are NOISY. Measured on identical input: mean drift 0.21,
-    # max 0.66 on the 0-5 scale, and neither temperature 0 nor a seed removes it. Ranking
-    # is done on the avg banded to `score_band`, so a sub-band gap is not a finding. This
-    # instruction has to travel WITH the numbers: the model only ever reads this digest, so
-    # a warning that lives only in photo_scores.json is invisible to it.
+    # The noise warning travels WITH the numbers: the model only ever reads this digest.
     if p.get("score_band"):
         A(f"score_band: {p['score_band']} — avgs are noisy (measured drift ~0.2, max 0.66). "
           f"A gap smaller than one band is NOT a real difference. Never tell the user one "
           f"photo beats another on a sub-band gap; rank on the band, not the decimal.")
+    fb = d / "photo_fallback.json"
+    if fb.exists():
+        try:
+            n = len(json.loads(fb.read_text(encoding="utf-8")).get("photos") or [])
+        except (OSError, ValueError, AttributeError):
+            n = "?"
+        A(f"⚠️ PHOTO FALLBACK REQUIRED: {n} photo(s) have no score (Gemini unavailable or "
+          f"failed). Score them yourself from {fb} (SKILL.md section 2b), write "
+          f"agent_photo_scores.json, then rerun the same run_pipeline command BEFORE writing "
+          f"result.json. Do not recommend a cover or gallery order from an incomplete ranking.")
     A("gaps: " + json.dumps(p.get("gaps") or [], ensure_ascii=False))
     for ph in (p.get("photos") or []):
         if not ph.get("scored"):
@@ -178,11 +167,7 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
           f"season={ph.get('season')} people={ph.get('has_people')} | "
           f"cap={str(ph.get('caption') or '')[:60]}")
 
-    # ── Reviews ───────────────────────────────────────────────────────
-    # The aggregates below span WHAT WAS PULLED, not necessarily the lifetime history. The
-    # pull defaults to the 20 newest, so they must be labelled with their real window —
-    # calling a 20-review average "(all)" would overstate it, and the unanswered count is
-    # the one a host might act on.
+    # ── Reviews (aggregates span what was PULLED, labelled with the real window) ──
     rev = _read(d, "reviews.json") or {}
     rv = rev.get("data") or []
     pull = rev.get("_pull") or {}
@@ -200,9 +185,7 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
         div = _scale_divisor(r)
         for dr in (_lit(r.get("private")).get("detailed_ratings") or []):
             v = _num(dr.get("rating"))
-            # 0 / None means NOT RATED, not a score of zero. Counting them dragged every
-            # average toward the floor (services read 0.0 purely because no channel uses it).
-            if v is None or v == 0:
+            if v is None or v == 0:  # 0 / None means NOT RATED, not a score of zero
                 continue
             cat.setdefault(dr.get("type"), []).append(v / div)
         if not r.get("responded_at"):
@@ -228,10 +211,8 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
           f"channel coverage. Account connections do not prove this property uses each "
           f"channel; absence from this sample does not prove the PMS cannot supply those "
           f"reviews. Do not describe review counts or themes as covering every channel.")
-    # Loud self-check on the exact bug that shipped for months: an average above 5 on a
-    # 0-5 scale means a channel arrived on a scale we could not derive. Measured channels
-    # are airbnb (1-5) and booking (1-10); anything else is unproven. Print the problem
-    # rather than a confident impossible number.
+    # An average above 5 on a 0-5 scale means a channel arrived on a scale we could not
+    # derive. Print the problem rather than a confident impossible number.
     bad = {k: v["avg"] for k, v in avgs.items() if v["avg"] > 5}
     if bad:
         A(f"⚠️ SCALE WARNING: {bad} exceed the 0-5 scale, so at least one channel in "

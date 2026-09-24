@@ -54,9 +54,9 @@ def file_lock(path: Path, timeout: float = 15):
                     import fcntl
                     fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
-            except (BlockingIOError, OSError):
+            except OSError as e:
                 if time.monotonic() - start >= timeout:
-                    raise TimeoutError(f"Timed out waiting for {path.name}")
+                    raise TimeoutError(f"Timed out waiting for {path.name}") from e
                 time.sleep(0.025)
         try:
             yield

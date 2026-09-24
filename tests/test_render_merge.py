@@ -16,7 +16,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-import render_report as rr  # noqa: E402
+import render_report as rr
 
 
 def _workdir(tmp, **files):
@@ -61,7 +61,7 @@ def test_missing_blocks_are_filled_from_disk():
                              "occupancy.json": OCCUPANCY, "cadence.json": CADENCE})
         data = {"listing": {"slug": "x"}, "optimized": {"title": "t"}}
         filled = rr.merge_machine_blocks(data, d)
-        assert set(k.split("(")[0] for k in filled) == {"photos", "comps", "occupancy", "cadence"}
+        assert {k.split("(")[0] for k in filled} == {"photos", "comps", "occupancy", "cadence"}
         assert data["photos"]["hero"] == 3
         assert data["cadence"]["due"][0]["item"] == "Title"
         # occupancy takes report_block, exactly as the skill told the model to do by hand

@@ -134,6 +134,15 @@ def test_summary_never_dumps_raw_json():
         assert '"capacity"' not in r.stdout, "raw subject JSON leaked into the summary"
 
 
+def test_null_listings_do_not_crash_subject_parsing():
+    """A PMS that returns "listings": null (instead of []) used to raise TypeError."""
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / "subject.json").write_text(json.dumps({"data": {
+            "name": "x", "listings": None, "capacity": {"max": 2, "bedrooms": 1}}}),
+            encoding="utf-8")
+        p = rp.subject_params(d)
+        assert p["name"] == "x" and p["airbnb_id"] is None and "_error" not in p
 
 
 def test_reservations_count_requires_an_explicit_window():

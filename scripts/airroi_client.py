@@ -1,20 +1,15 @@
 """
-Self-contained AirROI client — the ONLY external data dependency in this system.
-
-Vendored into the project so the Listing Optimizer needs NOTHING outside this
-folder except an API key (no external "AIRROI Comping Agent" repo, no sys.path
-injection). Reads AIRROI_API_KEY from the environment or the project .env.
-
-Used by scripts/pull_comps.py for competitor comps only. The caller strips all
-pricing — this client merely fetches the comparable-listings endpoint.
+Self-contained AirROI client. Reads AIRROI_API_KEY from the environment or the
+project .env. Used by scripts/pull_comps.py for competitor comps only; the caller
+strips all pricing.
 
 API: GET https://api.airroi.com/listings/comparables  (header: X-API-KEY)
 Get a key: https://www.airroi.com/api/developer/activate
 """
 from __future__ import annotations
 
-import os
 import math
+import os
 from pathlib import Path
 
 import httpx
@@ -22,7 +17,7 @@ import httpx
 try:
     from dotenv import load_dotenv
     load_dotenv(Path(__file__).resolve().parent.parent / ".env")
-except Exception:
+except ImportError:
     pass  # dotenv optional; env vars still work
 
 BASE = os.environ.get("AIRROI_BASE_URL", "https://api.airroi.com")
@@ -53,8 +48,8 @@ async def _get(endpoint: str, params: dict, client: httpx.AsyncClient) -> dict:
                          headers={"X-API-KEY": _key()}, timeout=TIMEOUT)
     try:
         data = r.json()
-    except Exception as e:
-        raise AirROIError(f"AirROI non-JSON response ({r.status_code}): {e}")
+    except ValueError as e:
+        raise AirROIError(f"AirROI non-JSON response ({r.status_code}): {e}") from e
     if r.status_code >= 400:
         raise AirROIError(f"AirROI HTTP {r.status_code}; check access or retry later")
     if not isinstance(data, dict):
@@ -89,31 +84,17 @@ async def fetch_comps(*, latitude=None, longitude=None, address=None,
                       currency: str = "usd", radius=None) -> tuple[list[dict], dict]:
     """ONE paid call. Coords are preferred; address is a FALLBACK, not a second lookup.
 
-    Returns (listings, meta) where meta records which calls were actually made, so the
-    caller can report the true paid-call count instead of guessing.
+    Returns (listings, meta); meta records which calls were actually made so the caller
+    reports the true paid-call count.
 
-    WHY ONE CALL (measured 2026-09-20 against the live API, boho-bliss / Prince George BC):
-      coords-only        -> 25 listings
-      street-address     -> 25 listings, 25 overlap, **0 unique**
-      city-address       -> 25 listings, 25 overlap, **0 unique**
-      Ranking both pools through pull_comps._demand_key gave a byte-identical top-10 in
-      the same order; market amenity frequency moved 1.7pts. Firing both (the old
-      behaviour, which SKILL.md triggered on every run by passing --lat/--lng AND
-      --address) doubled the bill for nothing the report prints.
+    Measured live (2026-09-20): a coords query and an address query for the same listing
+    returned the same 25-listing pool with 0 unique entries, so firing both doubled the
+    bill for nothing. Real markets saturate at the 25 cap (the endpoint relaxes the match
+    to fill it); the only observed failure mode is an EMPTY pool, which is when the
+    address retry earns its call. AirROI returns the subject as one of its own
+    comparables, so the caller excludes it by listing id.
 
-    WHY THE FALLBACK IS ON AN EMPTY POOL, NOT A THIN ONE: probed six markets incl. a
-    6BR and an 8BR in a small ski village and a 5BR in a rural town — every real market
-    saturated at or just under the 25 cap (the endpoint relaxes the match to fill it).
-    Treat 25 as a CEILING, not a guarantee: a 2026-09-20 live run reported 24, because the
-    subject listing is excluded from its own comp pool (see pull_comps --exclude-listing-id).
-    AirROI happily returns the subject as one of its own comparables, which made the
-    demand ranking circular and fed the subject's own title into "learn from comp titles".
-    Remote
-    coordinates with nothing nearby returned 0. So the failure mode is 0, never 5-15,
-    and the address retry only earns its money when the coord lookup comes back empty.
-
-    Raises AirROIError if the only attempt(s) failed — no more silent half-failures
-    (the old two-call merge swallowed one call's error whenever the other succeeded).
+    Raises AirROIError if the attempt(s) failed.
     """
     has_coords = latitude is not None and longitude is not None
     for value, low, high, name in ((latitude, -90, 90, "latitude"),

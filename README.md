@@ -113,11 +113,8 @@ are reusable. Generated reports and draft copy do not change the live listing.
 `memory.py record` saves a compact, price-free local history in `state/history.jsonl`.
 Same-listing/same-date runs replace that record. File locks protect history and cache
 updates when portfolio runs finish together. Draft reports are not marked as applied;
-cadence changes only after the live listing actually changes.
-
-Supabase sync is optional and requires a project explicitly nominated in
-`config/memory.json` or its dedicated REST configuration. The default workflow never
-creates database tables or discovers a writable project on its own.
+cadence changes only after the live listing actually changes. History is per machine
+and never leaves the folder.
 
 Hospitable uses the paste block. Other PMS content updates require a verified supported
 API, approval of the exact copy, a before-snapshot, a content-only request and a confirming
@@ -143,6 +140,7 @@ copy or delete the original. Preserve `.env`, all personal `config/` files, `bra
 
 ```bash
 .venv/bin/python -m pytest -q
+.venv/bin/ruff check scripts tests
 ```
 
 Tests cover pricing guards, copy validation, retries, real request construction against

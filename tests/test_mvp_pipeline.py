@@ -51,6 +51,7 @@ def test_staged_calendar_never_calls_hospitable(monkeypatch, tmp_path):
     monkeypatch.setattr(rp, "run", local_only)
     assert invoke(monkeypatch, tmp_path, "--skip", "photos,comps,memory") == 0
     occ = json.loads((tmp_path / "occupancy.json").read_text())
+    assert occ["report_block"]["source"] == "Staged PMS calendar"
     assert occ["report_block"]["upcoming_reservations"] == "n/a"
 
 

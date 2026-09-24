@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-import airroi_client as ac  # noqa: E402
+import airroi_client as ac
 
 
 class _Spy:
@@ -65,7 +65,7 @@ def test_empty_coord_pool_falls_back_to_address():
     spy = _Spy([[], [_listing(9)]])
     listings, meta = _run(spy, latitude=63.7, longitude=-135.0, address="Whitehorse, YT")
     assert spy.n == 2 and meta["calls"] == 2 and meta["fallback_used"] is True
-    assert [l["listing_info"]["listing_id"] for l in listings] == [9]
+    assert [line["listing_info"]["listing_id"] for line in listings] == [9]
 
 
 def test_non_empty_pool_never_triggers_the_fallback():
@@ -126,6 +126,7 @@ def test_cache_key_groups_by_110m_cell_not_by_address():
     call we would have made anyway.
     """
     import types
+
     import pull_comps as pc
 
     def args(lat, lng, addr, br=2, g=4):
@@ -147,6 +148,7 @@ def test_cache_key_groups_by_110m_cell_not_by_address():
 def test_address_only_query_keys_on_the_address():
     """With no coords there is no cell, so the normalised address carries the key."""
     import types
+
     import pull_comps as pc
 
     def args(addr):

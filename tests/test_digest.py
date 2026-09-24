@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-import build_digest as bd  # noqa: E402
+import build_digest as bd
 
 
 def _wd(tmp, **files):
@@ -225,7 +225,7 @@ def test_airbnb_zero_filled_categories_are_dropped():
             "cleanliness": 5, "checkin": 5, "accuracy": 5, "communication": 5,
             "location": 5, "value": 5, "staff": 0, "facilities": 0, "services": 0})]}
         d = _wd(tmp, **{"subject.json": SUBJECT, "reviews.json": revs})
-        line = [l for l in bd.build(d).split("\n") if l.startswith("category_avgs_0to5")][0]
+        line = next(line for line in bd.build(d).split("\n") if line.startswith("category_avgs_0to5"))
         for absent in ("staff", "facilities", "services"):
             assert absent not in line, f"{absent} was zero-filled by the channel, not rated"
         assert '"cleanliness": {"avg": 5.0, "n": 1}' in line
@@ -235,11 +235,9 @@ def test_no_category_average_can_exceed_five():
     """The invariant that was broken in production, asserted directly."""
     import json as _json
     with tempfile.TemporaryDirectory() as tmp:
-        revs = {"data": [_review("booking", 10, 5, {k: 10 for k in
-                                                    ("cleanliness", "location", "staff",
-                                                     "facilities", "value")})]}
+        revs = {"data": [_review("booking", 10, 5, dict.fromkeys(("cleanliness", "location", "staff", "facilities", "value"), 10))]}
         d = _wd(tmp, **{"subject.json": SUBJECT, "reviews.json": revs})
-        line = [l for l in bd.build(d).split("\n") if l.startswith("category_avgs_0to5")][0]
+        line = next(line for line in bd.build(d).split("\n") if line.startswith("category_avgs_0to5"))
         blob = _json.loads(line.split(": ", 1)[1])
         assert all(0 < v["avg"] <= 5 for v in blob.values()), f"out-of-range average: {blob}"
 

@@ -1,5 +1,0 @@
-{
-  "supabase_mcp": null,
-  "supabase_project_ref": null,
-  "_comment": "OPTIONAL and OPT-IN. Run history is local-only by default (state/history.jsonl) and needs no setup. Copy this to config/memory.json (gitignored) ONLY if you want that history mirrored to a Supabase project, and name the project yourself. The tool will never auto-detect a Supabase MCP and write to it: that applies a schema change to a database you did not choose, and if more than one is connected your history gets split across projects. Leave these null and nothing touches any database. Never commit config/memory.json — it holds your own project ref."
-}

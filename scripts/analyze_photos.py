@@ -5,8 +5,12 @@ analyze_photos.py — score listing photos against the ALE photo rubric with Gem
 Input  : Hospitable get_property_images JSON ({"data":[{url,thumbnail_url,caption,order}]})
          or a plain list of {url, caption, order}.
 Vision : Gemini (REST generateContent, structured JSON). Key from GEMINI_API_KEY
-         (env or project .env). If no key, writes a native-fallback manifest so the
-         Claude Code session can score the photos with its own vision.
+         (env or project .env).
+Fallback: any photo Gemini cannot score (no key, quota, outage) is downloaded to
+         <out dir>/photo_fallback/ with photo_fallback.json describing the exact rubric and
+         schema. The Claude Code session scores those with its own vision into
+         agent_photo_scores.json; the next run merges them through the same validation
+         and ranking. Agent scores always win over Gemini for the same photo.
 Output : aggregate JSON per references/photo-rubric.md — per-photo scores + tags +
          recommended top-5 order + hero + gaps + reshoot/restage flags.
 
@@ -28,13 +32,12 @@ from pathlib import Path
 
 import httpx
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import cache  # noqa: E402
+import cache
 
 try:  # standalone: load keys from the project .env (gitignored)
     from dotenv import load_dotenv
     load_dotenv(Path(__file__).resolve().parent.parent / ".env")
-except Exception:
+except ImportError:
     pass
 
 DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
@@ -45,15 +48,8 @@ RUBRIC_VERSION = 3
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 # Closed set of "beats" a photo can cover. The top-5 cover set must hit FIVE DIFFERENT
-# beats, and that only works if the label is drawn from a fixed vocabulary.
-#
-# WHY: this used to dedupe on the model's free-text `subject`, which drifts badly. Real
-# output from a 2026-06-08 run, apres-arcade: top5 = "fireplace and charcuterie" /
-# "arcade room" / "hot tub with mountain view" / "hot tub" / "arcade" — the hot tub twice
-# AND the arcade twice in a five-photo cover set, because "arcade" != "arcade room" under
-# string equality. Sunburst-chalet produced 16 near-duplicate label pairs across 29
-# photos. The cover + top-5 order is the single biggest CTR lever this tool emits, so a
-# duplicate there is the most expensive defect in the pipeline.
+# beats, which only works with a fixed vocabulary: deduping on the model's free-text
+# `subject` put the same hot tub in a cover set twice ("hot tub" != "hot tub with view").
 SUBJECT_KINDS = [
     "hot_tub", "pool", "sauna_cold_plunge", "fire_pit", "game_room_arcade",
     "home_theater", "living_room", "kitchen_dining", "primary_bedroom", "bedroom",
@@ -112,10 +108,8 @@ _SCORE_KEYS = ("technical", "lighting", "staging", "composition", "emotion", "al
 
 # ── Key loading ───────────────────────────────────────────────────────
 def load_gemini_key() -> str | None:
-    # Project .env is loaded into os.environ at import — single, in-folder source.
-    # No ~/.env read (that would be a hidden outside-the-folder dependency).
     for var in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"):
-        # Defensive: strip inline "# comment" remnants some .env editors leave in values.
+        # Strip inline "# comment" remnants some .env editors leave in values.
         v = (os.environ.get(var) or "").split("#")[0].strip()
         if v:
             return v
@@ -306,10 +300,8 @@ async def score_photos(photos, model, key, concurrency=2, retry_failures=True,
 
 
 # ── Photo-score cache ─────────────────────────────────────────────────
-# Hospitable serves content-addressed image URLs (…/property_images/<id>/<hash>.jpg), so a
-# replaced or edited photo gets a NEW url and therefore a natural cache miss. That makes
-# the url the correct cache key: unchanged photo, unchanged score, no Gemini call. Query
-# strings are stripped so a signed/expiring param from another PMS doesn't defeat it.
+# Hospitable image URLs are content-addressed, so a replaced photo gets a new URL and a
+# natural cache miss. Unchanged photo, unchanged score, no Gemini call.
 CACHE_NS = "photo_scores"
 CACHE_TTL_DAYS = 120  # a photo's score only changes if the photo or the rubric changes
 _CACHE_FIELDS = ("subject_kind", "subject", "season", "has_people", "is_map", "flags",
@@ -344,11 +336,9 @@ def store_cached(scored, model):
 
 
 # ── Aggregation: hero, top-5, gaps, flags ─────────────────────────────
-# Measured per-photo score noise on identical input: mean 0.21, max 0.66 on the 0-5 avg
-# (staging and composition were rock-steady; lighting and emotion did all the moving).
-# Ranking on the raw avg therefore lets noise reorder near-ties and flip the hero. Banding
-# to the nearest 0.5 and breaking ties by gallery order makes the ranking immune to drift
-# under 0.25 and fully deterministic for a given set of scores.
+# Measured per-photo score noise on identical input: mean 0.21, max 0.66 on the 0-5 avg.
+# Ranking on the raw avg lets noise flip the hero; banding to 0.5 and breaking ties by
+# gallery order makes the ranking deterministic for a given set of scores.
 SCORE_BAND = 0.5
 
 
@@ -375,22 +365,23 @@ def aggregate(scored: list[dict]) -> dict:
     ok = [p for p in scored if p.get("scored")]
     ok.sort(key=_rank_key)
     by_order = {p["order"]: p for p in ok}
-    band_of = lambda o: _band((by_order.get(o) or {}).get("avg"))  # noqa: E731
+
+    def band_of(o):
+        return _band((by_order.get(o) or {}).get("avg"))
 
     # Hero = highest-avg shot that is NOT a map (maps belong in the top 10, never the cover).
     hero = next((p["order"] for p in ok if not p.get("is_map")), None)
 
     # Top 5 covering FIVE DISTINCT beats: greedily take the highest-avg shot of each new
-    # beat. Deduping on the closed subject_kind enum (not free text) is what stops the
-    # same room appearing twice in the cover set.
+    # beat. A short honest cover set beats filling it with repeated rooms.
     top5, seen_beats = [], set()
     for p in ok:
         b = _beat(p)
         if b not in seen_beats:
-            top5.append(p["order"]); seen_beats.add(b)
+            top5.append(p["order"])
+            seen_beats.add(b)
         if len(top5) == 5:
             break
-    # A short honest cover set beats filling it with repeated rooms.
 
     # Experiences rule: a person in the top 5. If none, swap out the WEAKEST slot.
     people = [p for p in ok if p.get("has_people")]
@@ -409,10 +400,7 @@ def aggregate(scored: list[dict]) -> dict:
             people_swap = {"added": person["order"], "removed": weakest}
             break
 
-    # Re-sort. The swap above appends, which used to leave the gallery order out of rank:
-    # a real run (boho-bliss 2026-06-08) emitted avgs 5.0, 4.17, 3.67, 2.67, 3.5 — a 2.67
-    # photo sitting ahead of a 3.5 in the order we tell the user to publish. The hero
-    # stays at slot 1 regardless; the rest run strongest-first, banded.
+    # Re-sort after the swap: hero first, then strongest-first on the banded score.
     top5 = sorted(top5, key=lambda o: (o != hero, -band_of(o), o)) if hero is not None else []
 
     gaps = []
@@ -463,17 +451,76 @@ def aggregate(scored: list[dict]) -> dict:
     }
 
 
-def native_fallback_manifest(photos, out_path, reason):
+# ── Claude-vision fallback ────────────────────────────────────────────
+FALLBACK_MANIFEST = "photo_fallback.json"
+FALLBACK_DIR = "photo_fallback"
+AGENT_SCORES = "agent_photo_scores.json"
+
+
+def load_agent_scores(path: Path, photos: list[dict]) -> tuple[list[dict], list[str]]:
+    """Validated agent-vision scores for photos still in the gallery. A row counts only if
+    its order AND url match the current gallery, so a replaced photo is re-scored rather
+    than inheriting a stale score. Returns (scored photos, rejection notes)."""
+    if not path.exists():
+        return [], []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return [], [f"{path.name} unreadable ({e})"]
+    rows = raw.get("data") if isinstance(raw, dict) else raw
+    by_order = {p["order"]: p for p in photos}
+    scored, rejected = [], []
+    for row in rows if isinstance(rows, list) else []:
+        photo = by_order.get(row.get("order")) if isinstance(row, dict) else None
+        if photo is None or row.get("url") != photo["url"]:
+            rejected.append(f"order {row.get('order') if isinstance(row, dict) else '?'}: not in the current gallery")
+        elif not _valid_score(row):
+            rejected.append(f"order {row['order']}: fails the scoring schema")
+        else:
+            result = {**photo, **{k: row[k] for k in _SCHEMA["properties"]},
+                      "scored": True, "scorer": "claude_vision"}
+            result["avg"] = round(sum(result[k] for k in _SCORE_KEYS) / len(_SCORE_KEYS), 2)
+            scored.append(result)
+    return scored, rejected
+
+
+async def _download_all(photos: list[dict], folder: Path) -> list[dict]:
+    folder.mkdir(parents=True, exist_ok=True)
+    ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+    out = []
+    async with httpx.AsyncClient() as client:
+        for p in photos:
+            entry = {"order": p["order"], "url": p["url"], "caption": p.get("caption", "")}
+            try:
+                mime, b64 = await _fetch_image(client, p["url"])
+                local = folder / f"{p['order']}.{ext[mime]}"
+                local.write_bytes(base64.b64decode(b64))
+                entry["local_path"] = str(local)
+            except (httpx.HTTPError, ValueError, KeyError, OSError) as e:
+                entry["download_error"] = str(e)[:120]
+            out.append(entry)
+    return out
+
+
+def write_fallback(photos: list[dict], out_dir: Path, reason: str) -> Path:
+    """Download the unscored photos and describe exactly what the agent must return."""
     manifest = {
-        "mode": "native_vision_fallback",
         "reason": reason,
-        "instructions": ("No Gemini key found. The Claude Code session should score each "
-                         "photo URL below against references/photo-rubric.md using its own "
-                         "vision, then assemble the same output shape (photos/hero/"
-                         "recommended_top5_order/gaps/reshoot/restage)."),
-        "photos": [{"order": p["order"], "url": p["url"], "caption": p["caption"]} for p in photos],
+        "instructions": (f"Open each local_path image and score it against the rubric below. "
+                         f"Write {AGENT_SCORES} in this folder as {{\"data\": [...]}} with one "
+                         f"object per photo: its order and url copied from this file, plus every "
+                         f"field in schema.required. Scores are integers 0-5. Then rerun the same "
+                         f"run_pipeline command; cached data makes the rerun free."),
+        "rubric": RUBRIC,
+        "schema": {"required": ["order", "url", *_SCHEMA["required"]],
+                   "subject_kind": SUBJECT_KINDS,
+                   "season": ["winter", "summer", "shoulder", "interior"],
+                   "flags": ["reshoot", "restage"]},
+        "photos": asyncio.run(_download_all(photos, out_dir / FALLBACK_DIR)),
     }
-    out_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    path = out_dir / FALLBACK_MANIFEST
+    path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    return path
 
 
 def main():
@@ -490,6 +537,8 @@ def main():
                     help="re-score every photo, ignoring (and not writing) the score cache")
     ap.add_argument("--cache-ttl-days", type=float, default=CACHE_TTL_DAYS,
                     help=f"reuse cached scores this recent (default {CACHE_TTL_DAYS})")
+    ap.add_argument("--agent-scores", default=None,
+                    help=f"Claude-vision scores (default: {AGENT_SCORES} next to --out)")
     args = ap.parse_args()
 
     if not 1 <= args.limit <= 100 or not 1 <= args.concurrency <= 8 or not 1 <= args.batch_size <= 10:
@@ -506,31 +555,48 @@ def main():
     if out_path:
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    ttl = 0 if args.no_cache else args.cache_ttl_days
-    cached, todo = split_cached(photos, args.model, ttl)
-    key = load_gemini_key()
-    if not key and todo:
-        if not out_path:
-            sys.exit("[analyze_photos] no GEMINI_API_KEY and no --out for fallback manifest")
-        native_fallback_manifest(photos, out_path, "GEMINI_API_KEY not found in env or project .env (see .env.example)")
-        print(f"[analyze_photos] no Gemini key — wrote native-fallback manifest ({len(photos)} photos) → {out_path}")
-        sys.exit(1)
+    out_dir = out_path.parent if out_path else Path(args.photos).parent
+    (out_dir / FALLBACK_MANIFEST).unlink(missing_ok=True)  # rebuilt below only if still needed
+    agent_path = Path(args.agent_scores) if args.agent_scores else out_dir / AGENT_SCORES
+    agent, rejected = load_agent_scores(agent_path, photos)
+    if agent:
+        print(f"[analyze_photos] using {len(agent)} Claude-vision score(s) from {agent_path.name}")
+    for note in rejected[:10]:
+        print(f"[analyze_photos] ignored agent score: {note}")
+    agent_orders = {p["order"] for p in agent}
+    remaining = [p for p in photos if p["order"] not in agent_orders]
 
-    # Reuse scores for photos whose URL hasn't changed — unchanged gallery, zero Gemini
-    # calls. This is also the main reason a re-run is slow on a free-tier key.
+    ttl = 0 if args.no_cache else args.cache_ttl_days
+    cached, todo = split_cached(remaining, args.model, ttl)
+    key = load_gemini_key()
     if cached:
         print(f"[analyze_photos] cache hit on {len(cached)}/{len(photos)} photo(s) — "
               f"scoring {len(todo)}. --no-cache to force a full re-score.")
     stats = {"api_calls": 0, "image_fetches": 0}
-    scored_new = asyncio.run(score_photos(photos=todo, model=args.model, key=key,
-                                          concurrency=args.concurrency, batch_size=args.batch_size,
-                                          stats=stats)) if todo else []
+    if todo and not key:
+        scored_new = [{**p, "scored": False, "error": "no GEMINI_API_KEY"} for p in todo]
+    else:
+        scored_new = asyncio.run(score_photos(photos=todo, model=args.model, key=key,
+                                              concurrency=args.concurrency, batch_size=args.batch_size,
+                                              stats=stats)) if todo else []
     if not args.no_cache:
         store_cached(scored_new, args.model)
+    for p in cached + scored_new:
+        if p.get("scored"):
+            p.setdefault("scorer", "gemini")
     # Restore the caller's photo order — aggregate() re-sorts by score, but `photos` in
     # the output should read in gallery order for the caption writer.
-    merged = {p["order"]: p for p in (cached + scored_new)}
+    merged = {p["order"]: p for p in (cached + scored_new + agent)}
     scored = [merged[p["order"]] for p in photos if p["order"] in merged]
+
+    unscored = [p for p in photos if not merged.get(p["order"], {}).get("scored")]
+    fallback = None
+    if unscored:
+        reason = ("GEMINI_API_KEY not found" if not key
+                  else f"Gemini could not score {len(unscored)} photo(s)")
+        fallback = write_fallback(unscored, out_dir, reason)
+        print(f"[analyze_photos] FALLBACK: {len(unscored)} photo(s) need Claude-vision scoring "
+              f"({reason}) → {fallback}")
     if not any(p.get("scored") for p in scored):
         # All photos failed — do NOT emit a success-looking result the optimizer would trust.
         if out_path:
@@ -539,9 +605,16 @@ def main():
                                            "rubric_version": RUBRIC_VERSION,
                                            "submitted_count": len(photos), "scored_count": 0},
                                            indent=2, ensure_ascii=False), encoding="utf-8")
-        sys.exit(f"[analyze_photos] ERROR: 0/{len(photos)} photos scored — "
-                 f"see {out_path or '(no --out)'}; check the Gemini key / network.")
+        sys.exit(f"[analyze_photos] 0/{len(photos)} photos scored by Gemini — "
+                 f"Claude-vision fallback required: {fallback}")
     result = aggregate(scored)
+    result["scored_by"] = {"gemini": sum(1 for p in scored if p.get("scorer") == "gemini"),
+                           "claude_vision": sum(1 for p in scored if p.get("scorer") == "claude_vision")}
+    if result["scored_by"]["claude_vision"]:
+        result["coverage_note"] += (f"; {result['scored_by']['claude_vision']} scored by the "
+                                    f"Claude-vision fallback")
+    if fallback:
+        result["fallback_manifest"] = str(fallback)
     result["model"] = args.model
     result["usage"] = stats
     result["rubric_version"] = RUBRIC_VERSION
@@ -559,10 +632,9 @@ def main():
         print(f"  hero=#{result['hero']}  top5={result['recommended_top5_order']}  "
               f"beats={result['top5_beats']}  gaps={len(result['gaps'])}")
         if errs:
-            print(f"  WARNING: {len(errs)} photo(s) failed within the request budget "
-                  f"and are EXCLUDED from the ranking (orders "
-                  f"{[p.get('order') for p in errs]}). Re-run with --concurrency 1, "
-                  f"or say so in the report — the ranking is incomplete.")
+            print(f"  WARNING: {len(errs)} photo(s) unscored and EXCLUDED from the ranking "
+                  f"(orders {[p.get('order') for p in errs]}). Score them via {fallback} "
+                  f"and rerun, or say so in the report — the ranking is incomplete.")
     else:
         print(text)
 

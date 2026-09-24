@@ -13,8 +13,7 @@ Python scripts collect and validate evidence; the agent writes ALE + StoryBrand 
   read. Hospitable remains paste-only. Other PMS write paths are not bundled/tested.
 - Credentials live in the gitignored `.env`. Never print keys, commit them, overwrite an
   existing `.env`, or send account config to the model just to inspect which keys exist.
-- History is local by default. Supabase requires a project the user explicitly nominates.
-  Never discover an arbitrary connected project and create a table there.
+- Run history is local (`state/history.jsonl`). Nothing writes to a database.
 
 ## Setup or update
 
@@ -79,4 +78,5 @@ clearly labelled degraded report. Exit 0 can mean degraded: inspect the status s
   displays incomplete photo coverage. Do not bypass those checks.
 - History upserts on `(listing_slug, run_date)`, under a file lock. Cache updates are also
   locked for parallel portfolio runs. Malformed history lines are preserved.
+- Lint with `.venv/bin/ruff check scripts tests` (config in `pyproject.toml`).
 - Mark cadence only when the live listing was actually changed, never for a draft report.

@@ -32,14 +32,17 @@ CADENCE = {
     "the_space":       ("“The Space” rewrite", 120),
     "seasonal_swap":   ("Seasonal swap",       105),
     "full_reshoot":    ("Full reshoot",       1000),
-    "conversion_audit":("Conversion audit",     30),
+    "conversion_audit": ("Conversion audit",    30),
 }
 
 
 def _load() -> dict:
-    if STATE_PATH.exists():
-        return json.loads(STATE_PATH.read_text(encoding="utf-8"))
-    return {}
+    """Fail-open: a corrupt state file means 'never refreshed', not a failed run."""
+    try:
+        data = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
 
 
 def _save(state: dict) -> None:

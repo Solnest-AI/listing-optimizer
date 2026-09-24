@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from render_report import PRICING_RE, PRICE_NUMBER_RE  # noqa: E402
+from render_report import PRICE_NUMBER_RE, PRICING_RE
 
 MUST_MATCH = [
     "$150", "costs $150", "from $400", "$ 1 258", "$1,258", "€300", "£175", "¥5000",

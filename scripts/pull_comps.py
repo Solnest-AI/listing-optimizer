@@ -2,16 +2,13 @@
 """
 pull_comps.py — fetch competitor comps for a subject listing via AirROI.
 
-SELF-CONTAINED: uses the vendored scripts/airroi_client.py (no external repo,
-no sys.path injection). AIRROI_API_KEY comes from the project .env / env.
-This is the ONLY paid (AirROI) call in the optimizer. The subject listing is
-pulled FREE from the user's PMS (AirROI supplies the subject only in
-no-PMS / Airbnb-only external mode).
+This is the ONLY paid AirROI call in the optimizer. AIRROI_API_KEY comes from the
+project .env. The subject itself comes free from the user's PMS.
 
 ZERO-PRICING GUARDRAIL (non-negotiable):
   - We never output price / ADR / min-stay / revenue / RevPAR.
   - "Top performers" are ranked by DEMAND signals (nights booked, occupancy,
-    review count) — NOT by revenue — so no pricing logic enters the pipeline.
+    review count), never by revenue.
 
 Usage:
   python scripts/pull_comps.py \
@@ -28,22 +25,17 @@ import json
 import sys
 from pathlib import Path
 
-# Vendored client lives next to this script — plain same-dir import (no repo path).
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import airroi_client  # noqa: E402
-import cache  # noqa: E402
+import airroi_client
+import cache
 
-# Comp pools move slowly. Measured on a real listing across 4 runs: 1 day apart =
-# byte-identical pool; 7 days = 9/10 top comps + 1.5pt amenity drift; 8 weeks = 8/10
-# + 2.3pt. 14 days keeps us inside the noise the ALE rubric can actually resolve.
+# Comp pools move slowly (measured: 7 days = 9/10 top comps + 1.5pt amenity drift).
+# 14 days stays inside the noise the ALE rubric can resolve.
 CACHE_TTL_DAYS = 14
 CACHE_NS = "airroi_comps"
 
 
 # ── Pricing strip: whitelist only NON-PRICE fields ────────────────────
-# NB: min-nights fields are deliberately EXCLUDED — min-stay is named in the
-# zero-pricing hard rule. We keep occupancy + nights-booked + length-of-stay
-# (demand signals), nothing monetary and nothing about stay-length *requirements*.
+# min-nights fields are deliberately EXCLUDED (min-stay is in the zero-pricing rule).
 _PERF_KEEP = (
     "ttm_occupancy", "ttm_adjusted_occupancy", "ttm_days_reserved",
     "ttm_available_days", "ttm_total_days", "ttm_avg_length_of_stay",
@@ -118,17 +110,11 @@ def _amenity_frequency(comps: list[dict]) -> list[dict]:
 def _cache_key(args, radius) -> str:
     """Key on WHAT WE ASK FOR, not on the listing.
 
-    Coordinates snap to a ~110m cell (3dp). Measured against the live API from one point:
-    a query 110m away returned an IDENTICAL 25-listing pool, 1.1km away shared 21/25, and
-    2.2km away 19/25 — so 3dp is the largest cell over which the pool is still the same
-    thing. Anything coarser would serve a materially different comp pool from cache.
+    Coordinates snap to a ~110m cell (3dp): measured live, a query 110m away returned an
+    identical 25-listing pool while 1.1km away shared only 21/25. Two units in the same
+    building share one paid call; two listings a kilometre apart do not.
 
-    Consequence worth knowing: two units in the same building share one paid call, but two
-    listings a kilometre apart do not. A miss only ever costs the call we would have made
-    anyway, so the conservative grid is the right trade.
-
-    The address is deliberately NOT in the key: it is only ever a fallback for an empty
-    coord pool, so it cannot change the result of a successful lookup.
+    The address is NOT in the key: it is only a fallback for an empty coord pool.
     """
     return cache.key_for(
         lat=round(args.lat, 3) if args.lat is not None else None,
@@ -166,9 +152,7 @@ async def _run(args) -> dict:
             bedrooms=args.bedrooms, baths=args.baths, guests=args.guests, radius=radius,
         )
         print(f"[pull_comps] {meta['calls']} AirROI call(s) [{meta['path']}]", file=sys.stderr)
-    # airroi_client.fetch_comps() already owns the uniqueness invariant (it dedupes the
-    # single result set by listing_id). Re-keying here is a cheap belt-and-suspenders after
-    # _clean_comp() — not a second source of truth. It also covers the cache path, where
+    # Re-key by listing_id after cleaning; this also covers the cache path, where
     # comps_raw came off disk rather than from the client.
     cleaned: dict = {}
     for c in comps_raw:
@@ -205,7 +189,6 @@ def main():
     ap.add_argument("--lat", type=float, default=None)
     ap.add_argument("--lng", type=float, default=None)
     ap.add_argument("--address", type=str, default=None)
-    ap.add_argument("--short-address", dest="short_address", type=str, default=None)
     ap.add_argument("--market", type=str, default=None)
     ap.add_argument("--bedrooms", type=int, required=True)
     ap.add_argument("--baths", type=float, required=True)
@@ -227,7 +210,7 @@ def main():
 
     try:
         result = asyncio.run(_run(args))
-    except Exception as e:
+    except (airroi_client.AirROIError, OSError, ValueError) as e:
         sys.exit(f"[pull_comps] pipeline failed: {e}")
 
     text = json.dumps(result, indent=2, ensure_ascii=False)

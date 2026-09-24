@@ -1,0 +1,24 @@
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["scripts", "tests"]
+
+[tool.ruff.lint]
+# Correctness and hygiene only. Style opinions (docstring shape, blind-except policing,
+# datetime timezone policing) are deliberately not enforced here.
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "RUF100"]
+ignore = [
+    "E501",   # long lines: measured comments and f-strings; the 120 limit still applies to code
+    "B008",   # function calls in defaults are not used here
+    "SIM108", # ternary rewrites hurt readability in the step-status code
+    "SIM102", # nested ifs are clearer than compound conditions in the pipeline gates
+    "UP015",  # explicit open modes are fine
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["airroi_client", "analyze_photos", "artifacts", "build_digest", "cache",
+                     "cadence", "hospitable_api", "memory", "occupancy", "pull_comps",
+                     "render_report", "run_pipeline"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
