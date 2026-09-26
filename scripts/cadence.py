@@ -59,13 +59,18 @@ def check(listing: str, today: date) -> list[dict]:
     rows = []
     for key, (label, interval) in CADENCE.items():
         last_s = state.get(key)
-        if last_s:
-            last = datetime.strptime(last_s, "%Y-%m-%d").date()
+        try:
+            last = datetime.strptime(str(last_s), "%Y-%m-%d").date() if last_s else None
+        except ValueError:
+            last = None
+        if last:
             due = last + timedelta(days=interval)
             status = "DUE" if today >= due else "ok"
             rows.append({"item": label, "last": last_s, "due": due.isoformat(), "status": status})
         else:
-            rows.append({"item": label, "last": "never", "due": today.isoformat(), "status": "DUE"})
+            # No record is not the same as overdue: the tool cannot know when photos were
+            # shot or copy was last written outside it, so it does not claim a due date.
+            rows.append({"item": label, "last": "no record", "due": "unknown", "status": "no record"})
     return rows
 
 

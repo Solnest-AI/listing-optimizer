@@ -236,7 +236,7 @@ def test_cadence_survives_a_corrupt_state_file(tmp_path, monkeypatch):
     monkeypatch.setattr(cadence, "STATE_PATH", tmp_path / "refresh_state.json")
     cadence.STATE_PATH.write_text("{oops")
     rows = cadence.check("x", datetime.date(2026, 9, 21))
-    assert rows and all(r["status"] == "DUE" for r in rows)
+    assert rows and all(r["status"] == "no record" for r in rows)
 
 
 def test_machine_notes_from_disk_follow_punctuation_rule(tmp_path):

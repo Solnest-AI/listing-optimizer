@@ -24,7 +24,7 @@
   .prewrap{white-space:pre-wrap;font-size:14px}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
   .badge{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;color:#fff}
-  .b-good{background:#2e7d52}.b-mid{background:#c8932a}.b-bad{background:#bb4b3c}
+  .b-good{background:#2e7d52}.b-mid{background:#c8932a}.b-bad{background:#bb4b3c}.b-none{background:#8a8a8a}
   .scorecard td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top;font-size:13px}
   .scorecard td.dim{font-weight:600;width:30%}
   .muted{color:var(--muted)}
@@ -204,7 +204,7 @@
       {% for d in data.cadence.due %}
       <tr>
         <td>{{ d.item }}</td><td>{{ d.last }}</td><td>{{ d.due }}</td>
-        <td>{% if d.status == 'DUE' %}<span class="badge b-bad">DUE</span>{% else %}<span class="badge b-good">ok</span>{% endif %}</td>
+        <td>{% if d.status == 'DUE' %}<span class="badge b-bad">DUE</span>{% elif d.status == 'ok' %}<span class="badge b-good">ok</span>{% else %}<span class="badge b-none">{{ d.status }}</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </table>
