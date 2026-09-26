@@ -27,6 +27,7 @@ import asyncio
 import base64
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -372,11 +373,22 @@ def _band(avg) -> float:
 
 
 def _rank_key(p: dict) -> tuple:
-    """Banded score first, then selling power (ale_fit + emotion), then gallery order.
-    Never the raw avg — that is the noisy part. Breaking band ties on gallery order alone
-    just echoed the host's current order back as a recommendation."""
+    """Banded score first, then selling power (ale_fit + emotion), then people at the
+    property, then gallery order. Never the raw avg — that is the noisy part. Breaking band
+    ties on gallery order alone echoed the host's current order back as a recommendation,
+    and dropped a couple-and-dog fire-pit shot for an identical-scoring empty one."""
     sell = sum(v for v in (p.get("ale_fit"), p.get("emotion")) if type(v) is int)
-    return (-_band(p.get("avg")), -sell, int(p.get("order") or 0))
+    return (-_band(p.get("avg")), -sell, not _people_here(p), int(p.get("order") or 0))
+
+
+def _shows_bed(p: dict) -> bool:
+    return bool(re.search(r"\b(king|queen|double|twin|bunk|bed)\b", str(p.get("subject") or ""), re.I))
+
+
+def _people_here(p: dict) -> bool:
+    """People AT the property. Diners downtown or a skier at a ski hill do not stage the
+    stay, so they do not satisfy the Experiences rule."""
+    return bool(p.get("has_people")) and p.get("subject_kind") not in LOCATION_BEATS
 
 
 # Beats that must never be the cover (search thumbnail): not the property, not one shot,
@@ -436,8 +448,8 @@ def aggregate(scored: list[dict]) -> dict:
             seen_beats.add(b)
 
     # Experiences rule: a person in the top 5. If none, swap out the WEAKEST slot.
-    people = [p for p in ok if p.get("has_people") and _top5_ok(p)]
-    top5_has_people = any(by_order.get(o, {}).get("has_people") for o in top5)
+    people = [p for p in ok if _people_here(p) and _top5_ok(p)]
+    top5_has_people = any(_people_here(by_order.get(o, {})) for o in top5)
     people_swap = None
     if people and not top5_has_people:
         for person in people:
@@ -455,9 +467,15 @@ def aggregate(scored: list[dict]) -> dict:
 
     # Sleeping rule: the cover set shows where guests sleep when the gallery has a usable
     # bedroom shot. Evict the weakest slot that is not the hero and not the only people shot.
-    sleep = next((p for p in ok if p.get("subject_kind") in SLEEP_BEATS and _top5_ok(p)), None)
-    if sleep and not any(by_order[o].get("subject_kind") in SLEEP_BEATS for o in top5):
-        people_in = [o for o in top5 if by_order[o].get("has_people")]
+    sleepers = [p for p in ok if p.get("subject_kind") in SLEEP_BEATS and _top5_ok(p)]
+    # Within a score band, a shot of the bed beats a bedside close-up filed as "bedroom".
+    sleep = min(sleepers, key=lambda p: (-_band(p.get("avg")), not _shows_bed(p), _rank_key(p)), default=None)
+    in_slot = next((o for o in top5 if by_order[o].get("subject_kind") in SLEEP_BEATS), None)
+    if sleep and in_slot is not None and in_slot != sleep["order"] and in_slot != hero \
+            and _band(by_order[in_slot].get("avg")) <= _band(sleep.get("avg")):
+        top5 = [sleep["order"] if o == in_slot else o for o in top5]
+    elif sleep and in_slot is None:
+        people_in = [o for o in top5 if _people_here(by_order[o])]
         evictable = [o for o in top5 if o != hero and people_in != [o]]
         if len(top5) < 5:
             top5.append(sleep["order"])
@@ -481,7 +499,7 @@ def aggregate(scored: list[dict]) -> dict:
                     f"Current cover #{current} is {why}, which should not be the search thumbnail.")
     if not any(p.get("is_map") for p in ok):
         gaps.append("No map photo with pins + drive-times — create one (ALE Location, belongs in top 10).")
-    if not any(by_order.get(o, {}).get("has_people") for o in top5):
+    if not any(_people_here(by_order.get(o, {})) for o in top5):
         gaps.append("No person in the top 5 — stage an Experience moment with people at the signature amenity/space.")
     seasons = {p.get("season") for p in ok}
     if "winter" in seasons and "summer" not in seasons:

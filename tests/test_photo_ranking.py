@@ -187,6 +187,34 @@ def test_bedroom_rule_never_evicts_the_only_people_shot():
     assert 4 in r["recommended_top5_order"] and 5 in r["recommended_top5_order"]
 
 
+
+def test_exact_ties_go_to_people_at_the_property_and_off_property_people_do_not_count():
+    """boho-bliss 2026-09-26 pass 3: #45 (couple and dog at the fire pit) and #11 (empty fire
+    pit) tied on every score; gallery order picked #11, #45 was dropped as the same beat, and
+    the people rule was satisfied by a skier at a ski hill two hours away (#36)."""
+    def sub(order, avg, kind, people=False, subject=None):
+        p = {**_s(order, avg, kind, ale=5, emo=5), "has_people": people}
+        if subject:
+            p["subject"] = subject
+        return p
+    photos = [sub(11, 4.67, "fire_pit"), sub(45, 4.5, "fire_pit", people=True),
+              sub(36, 4.33, "view_scenery", people=True), sub(1, 3.83, "living_room"),
+              sub(8, 4.0, "kitchen_dining"),
+              {**_s(7, 3.17, "bedroom", ale=3, emo=3), "subject": "bedside table with lamp and water carafe"},
+              {**_s(12, 3.17, "bedroom", ale=3, emo=3), "subject": "bedroom with queen bed and nightstands"}]
+    r = ap.aggregate(photos)
+    assert r["hero"] == 45, f"hero {r['hero']}: the people shot must win an exact tie"
+    assert 12 in r["recommended_top5_order"] and 7 not in r["recommended_top5_order"], r["recommended_top5_order"]
+
+
+def test_off_property_people_do_not_satisfy_the_people_rule():
+    photos = [_s(0, 5.0, "hot_tub"), _s(1, 4.5, "living_room"), _s(2, 4.5, "kitchen_dining"),
+              _s(3, 4.0, "neighbourhood_area"), _s(4, 3.5, "deck_patio_yard")]
+    photos[3]["has_people"] = True   # diners at a brewery downtown
+    r = ap.aggregate(photos)
+    assert any("No person in the top 5" in g for g in r["gaps"]), r["gaps"]
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
