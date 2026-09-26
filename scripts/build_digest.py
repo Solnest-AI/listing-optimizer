@@ -2,7 +2,7 @@
 """
 build_digest.py — collapse the raw pipeline files into the ONE file the optimizer reads.
 
-The raw files total ~350KB on a real listing. This collapses them to ~15KB with no loss
+The raw files total ~115-350KB on a real listing. This collapses them to ~25KB with no loss
 the ALE / SB7 rubrics care about.
 
 Usage:
@@ -112,7 +112,9 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
     problems = [s for s in status.get("steps", []) if s.get("status") == "FAILED"]
     if problems:
         A("DATA GAPS: " + "; ".join(f"{s['name']}: {s['detail']}" for s in problems))
-    A("address: " + json.dumps(s.get("address") or {}, ensure_ascii=False)[:400])
+    addr = s.get("address") if isinstance(s.get("address"), dict) else {}
+    A("address: " + (addr.get("display") or ", ".join(
+        str(addr[k]) for k in ("street", "city", "state", "country") if addr.get(k)) or "unknown"))
 
     # ── Comps (demand-ranked, price-free) ─────────────────────────────
     c = _read(d, "comps.json") or {}
@@ -126,7 +128,10 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
         A(f"- {str(t.get('name') or '')[:70]} | {t.get('bedrooms')}br/{t.get('baths')}ba/"
           f"{t.get('guests')}g | {r.get('rating_overall')}* ({r.get('num_reviews')}rev) | "
           f"occ {p.get('ttm_occupancy')}")
-    A("title_samples: " + json.dumps(c.get("comp_title_samples") or [], ensure_ascii=False)[:900])
+    if c.get("comp_title_samples"):
+        A("title_samples (competitor evidence, verbatim):")
+        for t in c["comp_title_samples"][:10]:
+            A(f"  - {' '.join(str(t).split())[:120]}")
     # Computed diff, not a frequency dump: the most common comp amenities are universal
     # basics, and PMS keys do not match AirROI labels, so the model cannot diff them by eye.
     if c.get("market_amenity_frequency"):
@@ -260,10 +265,24 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
           f"asks for the lifetime number.")
 
     # ── Funnel / occupancy / prior run ────────────────────────────────
-    for name, title in (("funnel.json", "FUNNEL"), ("occupancy.json", "OCCUPANCY")):
-        x = _read(d, name)
-        if x:
-            A(f"\n# {title}\n" + json.dumps(x, ensure_ascii=False)[:1500])
+    # Formatted whole, never sliced: a fixed-length cut of serialized JSON drops whole
+    # records (a 365-day calendar lost its later months at 1,500 chars).
+    funnel = _read(d, "funnel.json")
+    if funnel:
+        A("\n# FUNNEL\n" + json.dumps(funnel, ensure_ascii=False))
+    occ = _read(d, "occupancy.json")
+    if isinstance(occ, dict) and occ:
+        fw = occ.get("forward_window") or {}
+        A(f"\n# OCCUPANCY (source: {occ.get('source')}; on the books from the run date, "
+          f"not a finished month)")
+        A(f"forward {fw.get('days')}d: {fw.get('occupancy_pct')}% ({fw.get('booked')} booked / "
+          f"{fw.get('available')} open / {fw.get('blocked')} blocked / {fw.get('unknown', 0)} unknown); "
+          f"reservations in window: {occ.get('upcoming_reservations', 'n/a')}")
+        for month, m in (occ.get("monthly") or {}).items():
+            A(f"- {month}: {m.get('occupancy_pct')}% ({m.get('booked')} booked / "
+              f"{m.get('available')} open / {m.get('blocked')} blocked)")
+        if occ.get("rankbreeze_crosscheck"):
+            A("rankbreeze_crosscheck: " + json.dumps(occ["rankbreeze_crosscheck"], ensure_ascii=False))
     # One compact line per prior run. Raw JSON was cut mid-record at 1,500 chars, which
     # hid every run after the first and half of the first one's amenity gaps.
     prior = _read(d, "prior_runs.json")

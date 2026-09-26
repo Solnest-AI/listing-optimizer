@@ -403,3 +403,26 @@ def test_review_complaint_at_the_end_survives_and_private_feedback_is_carried(tm
     assert "running warm at night." in out, "the complaint at the end was cut"
     assert "smoke alarm chirped once overnight" in out
     assert "never quote" in out.lower(), "private feedback must carry its no-quote rule"
+
+
+def test_nothing_is_sliced_mid_record(tmp_path):
+    """Four spots cut serialized JSON at a fixed length. A 365-day calendar puts twelve
+    months in occupancy.json and the 1,500-char cut dropped the later ones; ten long comp
+    titles overflowed the 900-char cut. Same bug class as the prior-runs fix in 70d5451."""
+    months = {f"2027-{m:02d}": {"occupancy_pct": 50.0, "booked": 15, "available": 15,
+                                 "blocked": 0, "unknown": 0} for m in range(1, 13)}
+    occ = {"source": "Hospitable", "monthly": months,
+           "forward_window": {"occupancy_pct": 50.0, "booked": 180, "available": 180,
+                              "blocked": 5, "days": 365, "unknown": 0},
+           "reason_counts": {"RESERVED": 180}, "upcoming_reservations": 30,
+           "report_block": {"forward_pct": 50.0}}
+    titles = [f"Comp {i} " + "x" * 90 for i in range(10)]
+    comps = {"comp_count": 10, "fetch": {"calls": 0, "path": "cache"}, "top_comps": [],
+             "market_amenity_frequency": [], "comp_title_samples": titles}
+    (tmp_path / "subject.json").write_text(json.dumps(SUBJECT))
+    (tmp_path / "occupancy.json").write_text(json.dumps(occ))
+    (tmp_path / "comps.json").write_text(json.dumps(comps))
+    out = bd.build(tmp_path)
+    assert "2027-12" in out, "later months were cut off"
+    assert "Comp 9 " in out, "later comp titles were cut off"
+    assert out.count("report_block") == 0, "occupancy printed its duplicate report block"
