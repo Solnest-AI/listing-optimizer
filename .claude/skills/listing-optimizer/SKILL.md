@@ -82,10 +82,12 @@ The PMS copy of a gallery can differ from the live Airbnb listing (measured: PMS
 with a collage cover, Airbnb 32 with a different cover and captions). The pipeline ranks the
 live gallery when it can, in this order:
 
-1. `RANKBREEZE_MCP_URL` in `.env`: full gallery, live order and captions.
-2. `INTELLIHOST_MCP_TOKEN` in `.env`: live order, no captions, Premium-gated per property.
-   A short list is marked incomplete ("29 of 42"), never treated as the whole gallery.
-3. No key, but RankBreeze or IntelliHost tools are connected in Claude: before running the
+1. RankBreeze (`RANKBREEZE_MCP_URL` in `.env`, or its server already connected in Claude
+   Code, found automatically): full gallery, live order and captions.
+2. IntelliHost (`INTELLIHOST_MCP_TOKEN`, or its connection in Claude Code): live order, no
+   captions, Premium-gated per property. Its stored gallery can drop the tail (measured: first
+   29 of 42), so a short list is marked incomplete, never treated as the whole gallery.
+3. Connected only as a claude.ai connector (not in Claude Code's config): before running the
    pipeline, stage `output/<DATE>/<SLUG>/live_gallery.json` yourself. RankBreeze:
    `get_user_listings` (follow `nextCursor`) to find the row whose `room_id` is the Airbnb id,
    then `get_listing_content` with `include_images: true`. IntelliHost: `list-properties-tool`,

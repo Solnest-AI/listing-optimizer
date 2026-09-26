@@ -94,10 +94,12 @@ not objective measurements. `analyze_photos.py --batch-size 1 --no-cache` enable
 
 Your PMS copy of the gallery can differ from what guests see on Airbnb (one real listing:
 54 photos with a collage cover in the PMS, 32 with a different cover on Airbnb). Add
-`RANKBREEZE_MCP_URL` or `INTELLIHOST_MCP_TOKEN` to `.env` (see `.env.example`) and the
-photo plan uses the live Airbnb gallery, numbered by Airbnb position. RankBreeze returns the
-full gallery with captions. IntelliHost needs Premium on the property, returns no captions,
-and a short list is reported as incomplete. With neither, the PMS gallery is ranked and the
+a RankBreeze or IntelliHost connection in Claude Code (found automatically), or set
+`RANKBREEZE_MCP_URL` / `INTELLIHOST_MCP_TOKEN` in `.env`, and the photo plan uses the live
+Airbnb gallery, numbered by Airbnb position. RankBreeze returns the
+full gallery with captions. IntelliHost needs Premium on the property and returns no captions.
+Its stored gallery can also be short: on one Premium listing it held the first 29 of 42 live
+photos (its own earlier captures had all 42), so a short list is reported as incomplete. With neither, the PMS gallery is ranked and the
 report says it was not checked against Airbnb. If RankBreeze or IntelliHost is connected in
 Claude instead of `.env`, Claude stages the live gallery itself before the run.
 

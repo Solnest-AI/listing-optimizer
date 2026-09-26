@@ -109,6 +109,7 @@ def test_agent_staged_gallery_is_validated(bad):
 
 
 def test_source_order_prefers_the_complete_provider(monkeypatch):
+    monkeypatch.setattr(lg, "CLAUDE_CONFIGS", [])
     monkeypatch.setenv("RANKBREEZE_MCP_URL", "https://app.rankbreeze.com/api/mcp/x")
     monkeypatch.setenv("INTELLIHOST_MCP_TOKEN", "t")
     assert [name for name, _ in lg.configured_sources()] == ["rankbreeze", "intellihost"]
@@ -207,3 +208,39 @@ def test_reports_say_which_gallery_the_photo_numbers_refer_to(tpl):
         "kind": "pms", "provider": "Hospitable"}}})
     assert "live Airbnb listing via rankbreeze" in live and "Airbnb photo positions" in live
     assert "not checked against the live Airbnb listing" in pms
+
+
+def test_connections_already_in_claude_code_are_found_without_env(tmp_path, monkeypatch):
+    """Ryan, 2026-09-26: members should not paste a key they already connected in Claude.
+    The RankBreeze MCP address (key in the path) and the IntelliHost bearer token are read
+    from the Claude Code config; nothing else in that file is touched."""
+    monkeypatch.delenv("RANKBREEZE_MCP_URL", raising=False)
+    monkeypatch.delenv("INTELLIHOST_MCP_TOKEN", raising=False)
+    cfg = tmp_path / ".claude.json"
+    cfg.write_text(json.dumps({"mcpServers": {
+        "rankbreeze": {"type": "http", "url": "https://app.rankbreeze.com/api/mcp/rb_mcp_abc"},
+        "intellihost": {"type": "http", "url": "https://clients.intellihost.co/api/mcp",
+                        "headers": {"Authorization": "Bearer tok123"}},
+        "other": {"type": "http", "url": "https://example.com/mcp", "headers": {"Authorization": "Bearer nope"}}}}))
+    monkeypatch.setattr(lg, "CLAUDE_CONFIGS", [cfg])
+    src = dict(lg.configured_sources())
+    assert src["rankbreeze"]["url"].endswith("rb_mcp_abc")
+    assert src["intellihost"]["token"] == "tok123"
+    assert list(src) == ["rankbreeze", "intellihost"]
+
+
+def test_env_wins_over_claude_config(tmp_path, monkeypatch):
+    cfg = tmp_path / ".claude.json"
+    cfg.write_text(json.dumps({"mcpServers": {"rb": {"url": "https://app.rankbreeze.com/api/mcp/rb_mcp_cfg"}}}))
+    monkeypatch.setattr(lg, "CLAUDE_CONFIGS", [cfg])
+    monkeypatch.setenv("RANKBREEZE_MCP_URL", "https://app.rankbreeze.com/api/mcp/rb_mcp_env")
+    assert dict(lg.configured_sources())["rankbreeze"]["url"].endswith("rb_mcp_env")
+
+
+def test_unreadable_claude_config_is_ignored(tmp_path, monkeypatch):
+    monkeypatch.delenv("RANKBREEZE_MCP_URL", raising=False)
+    monkeypatch.delenv("INTELLIHOST_MCP_TOKEN", raising=False)
+    bad = tmp_path / ".claude.json"
+    bad.write_text("{not json")
+    monkeypatch.setattr(lg, "CLAUDE_CONFIGS", [bad, tmp_path / "missing.json"])
+    assert lg.configured_sources() == []

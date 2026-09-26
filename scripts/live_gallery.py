@@ -38,6 +38,11 @@ except ImportError:
 from mcp_http import MCPError, Session
 
 INTELLIHOST_URL = "https://clients.intellihost.co/api/mcp"
+ROOT = Path(__file__).resolve().parent.parent
+# Where Claude Code keeps MCP connections: the user config (global and per-project
+# sections) and this project's .mcp.json. A member who connected RankBreeze or IntelliHost
+# in Claude Code needs no .env entry. Only those two servers are ever read from these files.
+CLAUDE_CONFIGS = [Path.home() / ".claude.json", ROOT / ".mcp.json"]
 AIRBNB_IMG = re.compile(r"^https://a\d\.muscache\.com/im/pictures/\S+$")
 
 
@@ -49,12 +54,40 @@ def _env(name: str) -> str:
     return (os.environ.get(name) or "").split("#")[0].strip()
 
 
+def _from_claude_config() -> dict:
+    """RankBreeze URL / IntelliHost token from MCP servers already connected in Claude Code."""
+    found = {}
+    for path in CLAUDE_CONFIGS:
+        try:
+            cfg = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        groups = [cfg.get("mcpServers") or {}]
+        project = (cfg.get("projects") or {}).get(str(ROOT)) if isinstance(cfg.get("projects"), dict) else None
+        if isinstance(project, dict):
+            groups.append(project.get("mcpServers") or {})
+        for servers in groups:
+            for server in servers.values() if isinstance(servers, dict) else []:
+                url = str((server or {}).get("url") or "")
+                auth = str(((server or {}).get("headers") or {}).get("Authorization") or "")
+                if "rankbreeze.com/api/mcp/" in url:
+                    found.setdefault("rankbreeze", url)
+                elif "intellihost.co/api/mcp" in url and auth.startswith("Bearer "):
+                    found.setdefault("intellihost", auth[len("Bearer "):].strip())
+    return found
+
+
 def configured_sources() -> list[tuple[str, dict]]:
+    """RankBreeze first (full gallery with captions), then IntelliHost. .env wins over the
+    Claude Code config for each provider."""
+    claude = _from_claude_config()
     out = []
-    if _env("RANKBREEZE_MCP_URL"):
-        out.append(("rankbreeze", {"url": _env("RANKBREEZE_MCP_URL")}))
-    if _env("INTELLIHOST_MCP_TOKEN"):
-        out.append(("intellihost", {"url": INTELLIHOST_URL, "token": _env("INTELLIHOST_MCP_TOKEN")}))
+    rb = _env("RANKBREEZE_MCP_URL") or claude.get("rankbreeze")
+    if rb:
+        out.append(("rankbreeze", {"url": rb}))
+    ih = _env("INTELLIHOST_MCP_TOKEN") or claude.get("intellihost")
+    if ih:
+        out.append(("intellihost", {"url": INTELLIHOST_URL, "token": ih}))
     return out
 
 
