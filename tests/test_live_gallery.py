@@ -284,3 +284,14 @@ def test_digest_uses_live_copy_and_live_amenities_and_flags_pms_drift(tmp_path):
     assert "PMS copy differs from live Airbnb: description" in out
     miss = next(line for line in out.splitlines() if line.startswith("missing_on_live_airbnb"))
     assert "Self check-in" not in miss, "told the host to tick a box that is already ticked on Airbnb"
+
+
+def test_punctuation_only_title_difference_is_not_drift(tmp_path):
+    import build_digest as bd
+    (tmp_path / "subject.json").write_text(json.dumps({"data": {
+        "name": "Boho", "public_name": "Walk to UHNBC | Boho Suite · Firepit · Pets OK", "summary": "S"}}))
+    (tmp_path / "live_gallery.json").write_text(json.dumps({**GOOD, "listing": {
+        "title": "Walk to UHNBC | Boho Suite • Firepit • Pets OK", "summary": "S", "description": "",
+        "amenities": []}}))
+    out = bd.build(tmp_path)
+    assert "PMS copy matches" in out, [line for line in out.splitlines() if line.startswith("copy_source")]

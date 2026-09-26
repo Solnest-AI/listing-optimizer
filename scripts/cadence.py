@@ -23,6 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_PATH = ROOT / "state" / "refresh_state.json"
+HISTORY_PATH = ROOT / "state" / "history.jsonl"
 
 # item key -> (label, interval_days)
 CADENCE = {
@@ -54,8 +55,31 @@ def _today(arg: str | None) -> date:
     return datetime.strptime(arg, "%Y-%m-%d").date() if arg else date.today()
 
 
+def _applied_dates(listing: str) -> set[str] | None:
+    """Run dates confirmed applied for this listing, or None when it has no history to check.
+
+    A mark made on a draft run is not a refresh: boho-bliss showed 0/7 items due for marks
+    made on 2026-09-20, a draft whose title never reached Airbnb."""
+    try:
+        lines = HISTORY_PATH.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    seen, applied = False, set()
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and row.get("listing_slug") == listing:
+            seen = True
+            if row.get("applied") is True and row.get("run_date"):
+                applied.add(str(row["run_date"]))
+    return applied if seen else None
+
+
 def check(listing: str, today: date) -> list[dict]:
     state = _load().get(listing, {})
+    confirmed = _applied_dates(listing)
     rows = []
     for key, (label, interval) in CADENCE.items():
         last_s = state.get(key)
@@ -63,7 +87,10 @@ def check(listing: str, today: date) -> list[dict]:
             last = datetime.strptime(str(last_s), "%Y-%m-%d").date() if last_s else None
         except ValueError:
             last = None
-        if last:
+        if last and confirmed is not None and last_s not in confirmed:
+            rows.append({"item": label, "last": f"{last_s} (draft, not confirmed applied)",
+                         "due": today.isoformat(), "status": "DUE"})
+        elif last:
             due = last + timedelta(days=interval)
             status = "DUE" if today >= due else "ok"
             rows.append({"item": label, "last": last_s, "due": due.isoformat(), "status": status})
@@ -114,7 +141,7 @@ def main():
             print(f"[cadence] {n_due}/{len(rows)} items DUE → {args.out}")
         else:
             for r in rows:
-                flag = "⚠️ DUE" if r["status"] == "DUE" else "ok"
+                flag = "⚠️ DUE" if r["status"] == "DUE" else r["status"]
                 print(f"  {r['item']:<22} last={r['last']:<12} due={r['due']:<12} {flag}")
 
 

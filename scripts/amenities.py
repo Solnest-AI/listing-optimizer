@@ -56,6 +56,11 @@ BRANDED_SUFFIXES = ("oven", "stove", "refrigerator", "sound system", "coffee mak
                     "shampoo", "conditioner", "body soap", "shower gel", "exercise equipment",
                     "game console", "pool table")
 
+# Safety and disclosure items: never suggested as selling points for the title or summary.
+NOT_SELLING_POINTS = {"exterior security cameras on property", "smoke alarm", "carbon monoxide alarm",
+                      "fire extinguisher", "first aid kit", "noise decibel monitors on property",
+                      "essentials", "hangers", "hot water"}
+
 # house_rules flags that Airbnb (and AirROI) list as amenities.
 HOUSE_RULE_AMENITIES = {"pets_allowed": "pets allowed", "smoking_allowed": "smoking allowed"}
 
@@ -126,7 +131,8 @@ def compare(amenities, house_rules, frequency, top_comps, copy_text: str) -> dic
         entry = {"amenity": row["amenity"], "pct": pct, "top_hits": hits, "top_n": len(top_sets)}
         if key not in have and pct >= MISSING_MIN_PCT:
             missing.append(entry)
-        elif key in have and pct <= DIFFERENTIATOR_MAX_PCT and not _in_copy(key, copy_norm):
+        elif (key in have and pct <= DIFFERENTIATOR_MAX_PCT and key not in NOT_SELLING_POINTS
+              and not _in_copy(key, copy_norm)):
             unsurfaced.append(entry)
     missing.sort(key=lambda g: (-g["pct"], -g["top_hits"], g["amenity"]))
     unsurfaced.sort(key=lambda g: (g["pct"], g["amenity"]))

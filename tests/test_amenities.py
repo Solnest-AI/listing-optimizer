@@ -90,3 +90,12 @@ def test_airbnb_label_variants_match_the_market_labels():
             "Private backyard – Fully fenced", "Indoor fireplace: wood-burning", "Coffee maker: Keurig coffee machine"]
     r = am.compare(live, {}, freq, [], copy_text="")
     assert r["missing"] == [], [g["amenity"] for g in r["missing"]]
+
+
+def test_safety_and_disclosure_items_are_not_suggested_for_the_title():
+    """A security camera or first aid kit is a disclosure, not a selling point."""
+    freq = _freq([("Exterior security cameras on property", 46), ("First aid kit", 50),
+                  ("Smoke alarm", 40), ("Fire pit", 12)])
+    r = am.compare(["Exterior security cameras on property", "First aid kit", "Smoke alarm", "Fire pit"],
+                   {}, freq, [], copy_text="")
+    assert [x["amenity"] for x in r["unsurfaced"]] == ["Fire pit"]

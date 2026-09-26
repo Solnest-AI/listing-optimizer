@@ -109,7 +109,7 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
     for field, live_key in (("public_name", "title"), ("summary", "summary"), ("description", "description")):
         lv = live.get(live_key)
         if isinstance(lv, str) and lv.strip():
-            if " ".join(str(subject.get(field) or "").split()) != " ".join(lv.split()):
+            if amenities.norm(subject.get(field)) != amenities.norm(lv):  # punctuation-only is not drift
                 drift.append(live_key)
             subject[field] = lv
     # Bound only prose. Never truncate serialized JSON and silently lose facts

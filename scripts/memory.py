@@ -89,6 +89,9 @@ def summarize(result: dict, *, result_path: str | None = None, season: str | Non
                            else result.get("cadence_marked") or []),
         "result_path": result_path,
     }
+    if rec["cadence_marked"] and not rec["applied"]:
+        raise SystemExit("[memory] cadence marks require --applied: a draft report did not change the "
+                         "live listing, so nothing was refreshed.")
     if not rec["listing_slug"] or not rec["run_date"]:
         raise SystemExit("[memory] result.json is missing listing.slug or run_date — cannot record.")
     return rec
