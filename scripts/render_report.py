@@ -123,8 +123,11 @@ def check_caption_orders(data: dict, workdir: Path) -> list:
 
 def build_paste_block(data: dict) -> str:
     o = data.get("optimized", {})
+    live = ((data.get("photos") or {}).get("gallery_source") or {}).get("kind") == "live_airbnb"
+    where = ("paste directly on Airbnb, then match your PMS so the two stop drifting; photo numbers "
+             "are Airbnb positions" if live else "paste into your PMS; it syncs to your channels")
     lines = [f"=== {data.get('listing', {}).get('name', 'Listing')}: Optimized Content ===",
-             f"(Generated {data.get('run_date', '')} · paste into your PMS; it syncs to your channels)\n",
+             f"(Generated {data.get('run_date', '')} · {where})\n",
              "--- TITLE ---", o.get("title", "").strip() + "\n"]
     sc = o.get("summary_char_count")
     lines.append(f"--- SUMMARY ({sc} chars) ---" if sc else "--- SUMMARY ---")
@@ -132,7 +135,6 @@ def build_paste_block(data: dict) -> str:
     lines.append("--- THE SPACE ---")
     lines.append(o.get("the_space", "").strip() + "\n")
     caps = o.get("captions", [])
-    live = ((data.get("photos") or {}).get("gallery_source") or {}).get("kind") == "live_airbnb"
     if caps:
         lines.append("--- PHOTO CAPTIONS (recommended order) ---")
         for c in caps:

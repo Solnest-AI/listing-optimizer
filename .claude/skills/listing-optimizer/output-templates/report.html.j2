@@ -179,7 +179,7 @@
     {% if data.occupancy.monthly %}
     <table class="comps" style="margin-top:10px">
       <tr><th>Month</th>{% for k in data.occupancy.monthly.keys() %}<th>{{ k }}</th>{% endfor %}</tr>
-      <tr><td>Occupancy</td>{% for k in data.occupancy.monthly.keys() %}<td>{{ data.occupancy.monthly[k] }}</td>{% endfor %}</tr>
+      <tr><td>Booked from today</td>{% for k in data.occupancy.monthly.keys() %}<td>{{ data.occupancy.monthly[k] }}</td>{% endfor %}</tr>
     </table>
     {% endif %}
     {% if data.occupancy.rankbreeze_crosscheck and data.occupancy.rankbreeze_crosscheck != 'n/a' %}<div class="muted" style="font-size:12px;margin-top:8px">RankBreeze cross-check: <strong>{{ data.occupancy.rankbreeze_crosscheck }}</strong>. Use the source calendar when its availability is known.</div>{% endif %}
@@ -216,7 +216,7 @@
 
   <footer>
     {{ data.branding.company_name }} · {{ data.branding.tagline }} · <a href="{{ data.branding.website_url }}">{{ data.branding.website_url }}</a><br>
-    Paste-ready content: apply it in your PMS, or ask Claude to apply it for you where your PMS supports content updates. Pricing, calendars, and availability are never touched.
+    {% if (data.photos or {}).gallery_source and data.photos.gallery_source.kind == 'live_airbnb' %}Paste-ready content: apply it directly on Airbnb (then match your PMS so the two stop drifting). Pricing, calendars, and availability are never touched.{% else %}Paste-ready content: apply it in your PMS, or ask Claude to apply it for you where your PMS supports content updates. Pricing, calendars, and availability are never touched.{% endif %}
   </footer>
 </div>
 </body>

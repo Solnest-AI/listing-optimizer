@@ -295,3 +295,27 @@ def test_punctuation_only_title_difference_is_not_drift(tmp_path):
         "amenities": []}}))
     out = bd.build(tmp_path)
     assert "PMS copy matches" in out, [line for line in out.splitlines() if line.startswith("copy_source")]
+
+
+def test_paste_instructions_follow_where_the_copy_actually_lives():
+    """boho-bliss 2026-09-26: the paste block said 'paste into your PMS; it syncs to your
+    channels' on a listing whose PMS description had provably not reached Airbnb."""
+    import render_report as rr
+    base = {"listing": {"name": "x"}, "run_date": "d",
+            "optimized": {"title": "t", "summary": "s", "the_space": "sp", "captions": []}}
+    live = rr.build_paste_block({**base, "photos": {"gallery_source": {"kind": "live_airbnb"}}})
+    assert "it syncs to your channels" not in live and "directly on Airbnb" in live
+    pms = rr.build_paste_block({**base, "photos": {"gallery_source": {"kind": "pms"}}})
+    assert "paste into your PMS" in pms
+
+
+def test_occupancy_row_is_labelled_as_on_the_books():
+    from jinja2 import Environment, FileSystemLoader
+    root = Path(__file__).resolve().parent.parent
+    env = Environment(loader=FileSystemLoader(str(root / ".claude/skills/listing-optimizer/output-templates")),
+                      trim_blocks=True, lstrip_blocks=True)
+    md = env.get_template("report.md.j2").render(data={
+        "listing": {"name": "x"}, "optimized": {"title": "t", "summary": "s", "the_space": "sp"}, "branding": {},
+        "occupancy": {"source": "Hospitable", "forward_pct": 53.3, "forward_days": 90,
+                      "upcoming_reservations": 10, "monthly": {"2026-09": "100%"}}})
+    assert "| Booked from today |" in md and "| Occupancy |" not in md

@@ -118,7 +118,7 @@
 
 | Month | {{ data.occupancy.monthly.keys()|list|join(' | ') }} |
 |---|{{ '---|' * (data.occupancy.monthly|length) }}
-| Occupancy | {{ data.occupancy.monthly.values()|list|join(' | ') }} |
+| Booked from today | {{ data.occupancy.monthly.values()|list|join(' | ') }} |
 {% endif %}
 {% if data.occupancy.rankbreeze_crosscheck and data.occupancy.rankbreeze_crosscheck != 'n/a' %}
 _RankBreeze cross-check: **{{ data.occupancy.rankbreeze_crosscheck }}**. Use the source calendar when its availability is known._
@@ -155,4 +155,4 @@ _RankBreeze cross-check: **{{ data.occupancy.rankbreeze_crosscheck }}**. Use the
 ---
 
 _{{ data.branding.company_name }} · {{ data.branding.tagline }} · {{ data.branding.website_url }}_
-_Paste-ready content: apply it in your PMS, or ask Claude to apply it for you where your PMS supports content updates. Pricing, calendars, and availability are never touched._
+{% if (data.photos or {}).gallery_source and data.photos.gallery_source.kind == 'live_airbnb' %}_Paste-ready content: apply it directly on Airbnb (then match your PMS so the two stop drifting). Pricing, calendars, and availability are never touched._{% else %}_Paste-ready content: apply it in your PMS, or ask Claude to apply it for you where your PMS supports content updates. Pricing, calendars, and availability are never touched._{% endif %}
