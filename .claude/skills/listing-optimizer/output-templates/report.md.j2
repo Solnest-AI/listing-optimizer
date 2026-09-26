@@ -113,7 +113,7 @@
 
 ## Occupancy: {{ data.occupancy.source }}
 
-- **Forward {{ data.occupancy.forward_days }} days:** {% if data.occupancy.forward_pct is not none %}{{ data.occupancy.forward_pct }}% occupancy{% else %}unknown (incomplete calendar){% endif %} · **{{ data.occupancy.upcoming_reservations }}** upcoming reservations
+- **Forward {{ data.occupancy.forward_days }} days:** {% if data.occupancy.forward_pct is not none %}{{ data.occupancy.forward_pct }}% occupancy{% else %}unknown (incomplete calendar){% endif %} · **{{ data.occupancy.upcoming_reservations }}** stays on the books
 {% if data.occupancy.monthly %}
 
 | Month | {{ data.occupancy.monthly.keys()|list|join(' | ') }} |

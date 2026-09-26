@@ -175,7 +175,7 @@
   <h2>Occupancy <span class="muted" style="font-size:12px;font-weight:400">{{ data.occupancy.source }}</span></h2>
   <div class="card">
     <div><strong>Forward {{ data.occupancy.forward_days }} days:</strong> {% if data.occupancy.forward_pct is not none %}{{ data.occupancy.forward_pct }}% occupancy{% else %}unknown (incomplete calendar){% endif %}
-      &nbsp;·&nbsp; <strong>{{ data.occupancy.upcoming_reservations }}</strong> upcoming reservations</div>
+      &nbsp;·&nbsp; <strong>{{ data.occupancy.upcoming_reservations }}</strong> stays on the books</div>
     {% if data.occupancy.monthly %}
     <table class="comps" style="margin-top:10px">
       <tr><th>Month</th>{% for k in data.occupancy.monthly.keys() %}<th>{{ k }}</th>{% endfor %}</tr>

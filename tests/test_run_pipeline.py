@@ -199,3 +199,23 @@ if __name__ == "__main__":
             fn()
             print(f"✅ {name}")
     print("✅ run_pipeline tests passed")
+
+
+def test_stay_count_includes_stays_that_began_earlier_and_skips_cancelled():
+    """2026-09-26 portfolio run: Azure Palms showed 62 of 90 nights booked but "0 reservations in
+    window" because its only stay (Sep 12 to Nov 27, manual) started before the window; the pull
+    filtered on arrival date. Cancelled stays were also being counted."""
+    rows = [{"arrival_date": "2026-09-12T16:00:00", "departure_date": "2026-11-27T10:00:00", "status": "accepted"},
+            {"arrival_date": "2026-09-04T16:00:00", "departure_date": "2026-11-22T10:00:00", "status": "cancelled"},
+            {"arrival_date": "2026-08-25T16:00:00", "departure_date": "2026-08-28T10:00:00", "status": "accepted"},
+            {"arrival_date": "2026-10-01T16:00:00", "departure_date": "2026-10-04T10:00:00", "status": "accepted"},
+            {"arrival_date": "2026-12-30T16:00:00", "departure_date": "2027-01-02T10:00:00", "status": "accepted"}]
+    assert rp.count_stays(rows, "2026-09-26", "2026-12-24") == 2
+
+
+def test_zero_comps_is_a_data_gap_not_a_pass(tmp_path):
+    """lakehouse-on-ness: AirROI found 0 comps (coords and address) and the step showed a tick."""
+    (tmp_path / "comps.json").write_text(json.dumps({"comp_count": 0, "top_comps": []}))
+    assert rp.comps_problem(tmp_path) and "0 comparable" in rp.comps_problem(tmp_path)
+    (tmp_path / "comps.json").write_text(json.dumps({"comp_count": 24, "top_comps": [{}]}))
+    assert rp.comps_problem(tmp_path) is None

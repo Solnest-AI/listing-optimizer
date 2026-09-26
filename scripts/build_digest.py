@@ -102,6 +102,28 @@ def _says_more(live_text, pms_text, tolerance: int = 2) -> bool:
     return len(new) > tolerance
 
 
+FUNNEL_MAX_CTR = 40.0   # above this, views include traffic from outside first-page search
+FUNNEL_MIN_VIEWS = 300  # below this, one or two bookings swing the booking rate wildly
+
+
+def _funnel_checks(funnel: dict) -> list[str]:
+    """Months whose RankBreeze numbers cannot be read at face value. Measured 2026-09-26:
+    65.7% and 88.5% click-through (views from direct links and wishlists counted against
+    search impressions) and a 51.75% booking rate from 204 views."""
+    out = []
+    for month, m in (funnel.get("months") or {}).items():
+        if not isinstance(m, dict):
+            continue
+        ctr, views = _num(m.get("click_through_rate_pct")), _num(m.get("views"))
+        if ctr is not None and ctr > FUNNEL_MAX_CTR:
+            out.append(f"{month}: click-through {ctr:g}% means views include traffic from outside search "
+                       f"(direct links, wishlists, returning guests). Click-through and booking rate are "
+                       f"distorted; do not compare them to similar listings.")
+        if views is not None and views < FUNNEL_MIN_VIEWS:
+            out.append(f"{month}: only {views:g} views, too small a sample to judge the booking rate.")
+    return out
+
+
 def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
     out: list[str] = []
     A = out.append
@@ -351,6 +373,11 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
     funnel = _read(d, "funnel.json")
     if funnel:
         A("\n# FUNNEL\n" + json.dumps(funnel, ensure_ascii=False))
+        checks = _funnel_checks(funnel)
+        if checks:
+            A("FUNNEL CHECKS (do not diagnose from these months as if they were clean):")
+            for c in checks:
+                A(f"- {c}")
     occ = _read(d, "occupancy.json")
     if isinstance(occ, dict) and occ:
         fw = occ.get("forward_window") or {}
@@ -358,7 +385,8 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
           f"not a finished month)")
         A(f"forward {fw.get('days')}d: {fw.get('occupancy_pct')}% ({fw.get('booked')} booked / "
           f"{fw.get('available')} open / {fw.get('blocked')} blocked / {fw.get('unknown', 0)} unknown); "
-          f"reservations in window: {occ.get('upcoming_reservations', 'n/a')}")
+          f"stays on the books in this window (incl. ones that began earlier, cancelled excluded): "
+          f"{occ.get('upcoming_reservations', 'n/a')}")
         for month, m in (occ.get("monthly") or {}).items():
             A(f"- {month}: {m.get('occupancy_pct')}% ({m.get('booked')} booked / "
               f"{m.get('available')} open / {m.get('blocked')} blocked)")

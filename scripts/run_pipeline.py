@@ -37,7 +37,7 @@ SKIPPABLE = {"reviews", "calendar", "comps", "photos", "memory", "channels"}
 MANAGED = {"subject.json", "images.json", "live_gallery.json", "reviews.json", "channels.json", "calendar.json",
            "reservations.json", "occupancy.json", "prior_runs.json", "comps.json", "photo_scores.json", "cadence.json"}
 CRITICAL = ("subject", "digest")
-PHOTO_LIMIT_DEFAULT = 60  # keep equal to analyze_photos.DEFAULT_LIMIT (tested)
+PHOTO_LIMIT_DEFAULT = 100  # keep equal to analyze_photos.DEFAULT_LIMIT (tested)
 
 
 class Step:
@@ -109,6 +109,32 @@ def live_gallery_step(wd: Path, room_id, runner=None) -> tuple[str, str]:
         return "skipped", f"live_gallery.json is invalid ({str(e)[:80]}); {fallback}"
     artifacts.write_json(wd / "images.json", live_gallery.to_images(gallery))
     return "ok", detail
+
+
+def count_stays(rows, start: str, end: str) -> int:
+    """Accepted stays that overlap [start, end], including ones that began before the window.
+    The Hospitable pull filters on arrival date, so a long stay that started earlier counted as
+    zero (Azure Palms: 62 of 90 nights booked, "0 reservations"); cancelled stays counted too."""
+    n = 0
+    for r in rows or []:
+        if not isinstance(r, dict) or r.get("status") not in (None, "accepted"):
+            continue
+        arrive, depart = str(r.get("arrival_date") or "")[:10], str(r.get("departure_date") or "")[:10]
+        if arrive and depart and arrive <= end and depart > start:
+            n += 1
+    return n
+
+
+def comps_problem(wd: Path) -> str | None:
+    """Zero comps is a data gap, not a pass (lakehouse-on-ness: 0 from coords and address)."""
+    try:
+        c = json.loads((wd / "comps.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not c.get("comp_count"):
+        return ("AirROI found 0 comparable listings near this property (coordinates and address); "
+                "competitor sections and amenity gaps are empty")
+    return None
 
 
 def live_gallery_incomplete(wd: Path) -> bool:
@@ -372,15 +398,18 @@ def main():
             n = None
             ok_r = have("reservations.json")
             if not ok_r and calendar_from_hospitable:
+                # Pull a year back: the API filters on arrival, and a stay that began before
+                # the window still occupies it.
                 ok_r, _ = run(hosp("reservations", wd / "reservations.json", args.pid,
-                                   ("--start", args.date, "--end", end)), "reservations")
+                                   ("--start", str(start_date - timedelta(days=365)), "--end", end)),
+                              "reservations")
             if ok_r:
                 try:
                     rj = json.loads((wd / "reservations.json").read_text(encoding="utf-8"))
                     pull = rj.get("_pull") or {}
                     # Only trust the count when the window was actually scoped.
                     if pull.get("scoped") or (pull.get("window_start") and pull.get("window_end")):
-                        n = int(pull.get("count", len(rj.get("data") or [])))
+                        n = count_stays(rj.get("data"), args.date, end)
                         usable.add("reservations.json")
                 except (OSError, ValueError, TypeError, AttributeError):
                     n = None
@@ -440,7 +469,8 @@ def main():
         ok, msg = run(cmd, "comps")
         if ok:
             usable.add("comps.json")
-            st.done(msg)
+            problem = comps_problem(wd)
+            st.fail(problem) if problem else st.done(msg)
         else:
             st.fail(msg)
 

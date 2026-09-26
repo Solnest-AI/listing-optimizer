@@ -445,3 +445,20 @@ def test_unanswered_reviews_separate_the_ones_that_can_still_be_answered(tmp_pat
     out = bd.build(tmp_path)
     line = next(x for x in out.splitlines() if x.startswith("unanswered_reviews"))
     assert ": 3" in line and "1 can still be answered" in line, line
+
+
+def test_funnel_months_that_cannot_be_compared_are_flagged(tmp_path):
+    """2026-09-26 portfolio run: Urban Nest showed 65.7% click-through (1,263 views from 2,397
+    first-page impressions) and Azure Palms 88.5% while ranking on page 10. Views counted traffic
+    from outside search, so CTR and booking rate could not be compared to similar listings.
+    Apres Arcade's 51.75% booking rate came from 204 views."""
+    funnel = {"source": "RankBreeze", "months": {
+        "Aug": {"click_through_rate_pct": 65.66, "views": 1263, "booking_rate_pct": 2.12},
+        "Sep": {"click_through_rate_pct": 11.89, "views": 204, "booking_rate_pct": 51.75},
+        "Jul": {"click_through_rate_pct": 16.21, "views": 607, "booking_rate_pct": 10.51}}}
+    (tmp_path / "subject.json").write_text(json.dumps({"data": {"name": "x"}}))
+    (tmp_path / "funnel.json").write_text(json.dumps(funnel))
+    out = bd.build(tmp_path)
+    assert "Aug: click-through 65.66%" in out and "outside search" in out
+    assert "Sep: only 204 views" in out
+    assert "Jul:" not in out.split("FUNNEL CHECKS")[1], "a normal month was flagged"

@@ -115,7 +115,7 @@ Claude instead of `.env`, Claude stages the live gallery itself before the run.
 |---|---|
 | `--refresh` | Re-fetch Hospitable source data. Paid caches still apply. |
 | `--no-cache` or `LO_NO_CACHE=1` | Bypass paid caches even if old output files exist. |
-| `--photo-limit N` | Score 1..100 gallery photos; default 60. |
+| `--photo-limit N` | Score 1..100 gallery photos; default 100 (Airbnb's maximum). |
 | `--review-limit N` | Pull 1..50 recent reviews; default 20. |
 | `--skip photos,comps` | Avoid paid scoring and comp lookup. |
 

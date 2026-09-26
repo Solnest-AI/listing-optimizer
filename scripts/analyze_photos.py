@@ -17,7 +17,7 @@ Output : aggregate JSON per references/photo-rubric.md — per-photo scores + ta
 ZERO-PRICING: photo analysis never references price/value-for-money.
 
 Usage:
-  python scripts/analyze_photos.py --photos images.json --limit 60 \
+  python scripts/analyze_photos.py --photos images.json --limit 100 \
       --out output/2026-06-06/my-listing/photo_scores.json
 """
 from __future__ import annotations
@@ -165,9 +165,9 @@ def source_note(src: dict) -> str:
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_INLINE_BYTES = 18 * 1024 * 1024  # room for schema/text under the vendor's 20MB cap
 DEFAULT_BATCH_SIZE = 5
-# Whole gallery for a typical listing (20-60 photos). 30 left 24 of 54 unscored on a real run;
-# each extra 5 photos is one more free-tier Gemini request.
-DEFAULT_LIMIT = 60
+# Airbnb's own maximum gallery size, so no live photo goes unscored. 60 left 19 of 79 and 29 of
+# 89 unscored on real listings (2026-09-26); each extra 5 photos is one more free-tier request.
+DEFAULT_LIMIT = 100
 
 
 def _valid_score(data):
