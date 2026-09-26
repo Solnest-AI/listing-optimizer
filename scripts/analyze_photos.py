@@ -350,8 +350,27 @@ def _band(avg) -> float:
 
 
 def _rank_key(p: dict) -> tuple:
-    """Banded score first, then gallery order. Never the raw avg — that is the noisy part."""
-    return (-_band(p.get("avg")), int(p.get("order") or 0))
+    """Banded score first, then selling power (ale_fit + emotion), then gallery order.
+    Never the raw avg — that is the noisy part. Breaking band ties on gallery order alone
+    just echoed the host's current order back as a recommendation."""
+    sell = sum(v for v in (p.get("ale_fit"), p.get("emotion")) if type(v) is int)
+    return (-_band(p.get("avg")), -sell, int(p.get("order") or 0))
+
+
+# Beats that must never be the cover (search thumbnail): not the property, not one shot,
+# or not a reason to click. They can still sit in the gallery, and most in the top 5.
+NOT_COVER = {"collage_multi", "location_map", "neighbourhood_area", "bathroom", "amenity_detail"}
+# Beats kept out of the five-photo cover set entirely.
+NOT_TOP5 = {"collage_multi"}
+
+
+def _cover_ok(p: dict) -> bool:
+    return (not p.get("is_map") and p.get("subject_kind") not in NOT_COVER
+            and "reshoot" not in (p.get("flags") or []))
+
+
+def _top5_ok(p: dict) -> bool:
+    return p.get("subject_kind") not in NOT_TOP5 and "reshoot" not in (p.get("flags") or [])
 
 
 def _beat(p: dict) -> str:
@@ -369,22 +388,26 @@ def aggregate(scored: list[dict]) -> dict:
     def band_of(o):
         return _band((by_order.get(o) or {}).get("avg"))
 
-    # Hero = highest-avg shot that is NOT a map (maps belong in the top 10, never the cover).
-    hero = next((p["order"] for p in ok if not p.get("is_map")), None)
+    # Hero = highest-ranked shot that can be a cover: the property itself, one scene, not a
+    # map, collage, street, bathroom or detail, and not flagged for reshoot.
+    hero = next((p["order"] for p in ok if _cover_ok(p)), None)
 
-    # Top 5 covering FIVE DISTINCT beats: greedily take the highest-avg shot of each new
-    # beat. A short honest cover set beats filling it with repeated rooms.
+    # Top 5 covering FIVE DISTINCT beats, hero first: greedily take the highest-ranked
+    # shot of each new beat. A short honest cover set beats filling it with repeated rooms.
     top5, seen_beats = [], set()
+    if hero is not None:
+        top5.append(hero)
+        seen_beats.add(_beat(by_order[hero]))
     for p in ok:
-        b = _beat(p)
-        if b not in seen_beats:
-            top5.append(p["order"])
-            seen_beats.add(b)
         if len(top5) == 5:
             break
+        b = _beat(p)
+        if b not in seen_beats and _top5_ok(p):
+            top5.append(p["order"])
+            seen_beats.add(b)
 
     # Experiences rule: a person in the top 5. If none, swap out the WEAKEST slot.
-    people = [p for p in ok if p.get("has_people")]
+    people = [p for p in ok if p.get("has_people") and _top5_ok(p)]
     top5_has_people = any(by_order.get(o, {}).get("has_people") for o in top5)
     people_swap = None
     if people and not top5_has_people:
@@ -396,16 +419,25 @@ def aggregate(scored: list[dict]) -> dict:
             weakest = min(candidates, key=lambda o: (band_of(o), -o))
             top5 = [o for o in top5 if o != weakest] + [person["order"]]
             if weakest == hero:
-                hero = person["order"] if not person.get("is_map") else None
+                hero = person["order"] if _cover_ok(person) else next(
+                    (p["order"] for p in ok if p["order"] in top5 and _cover_ok(p)), None)
             people_swap = {"added": person["order"], "removed": weakest}
             break
 
     # Re-sort after the swap: hero first, then strongest-first on the banded score.
-    top5 = sorted(top5, key=lambda o: (o != hero, -band_of(o), o)) if hero is not None else []
+    top5 = sorted(top5, key=lambda o: (o != hero, _rank_key(by_order[o]))) if hero is not None else []
 
     gaps = []
     if hero is None:
         gaps.append("No eligible cover photo. Add a photo of the property before choosing the gallery order.")
+    # The lowest gallery order is the live cover (Airbnb's search thumbnail).
+    current = min(by_order) if by_order else None
+    if current is not None and current != hero and not _cover_ok(by_order[current]):
+        why = ("flagged for reshoot" if "reshoot" in (by_order[current].get("flags") or [])
+               else by_order[current].get("subject_kind") or "a map")
+        gaps.append(f"Current cover #{current} is {why}, which should not be the search "
+                    f"thumbnail. Replace it with #{hero}." if hero is not None else
+                    f"Current cover #{current} is {why}, which should not be the search thumbnail.")
     if not any(p.get("is_map") for p in ok):
         gaps.append("No map photo with pins + drive-times — create one (ALE Location, belongs in top 10).")
     if not any(by_order.get(o, {}).get("has_people") for o in top5):

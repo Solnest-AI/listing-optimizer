@@ -36,6 +36,11 @@ Also tag each photo:
 ## Hero + top-5 selection rules (ALE-driven)
 
 1. **Hero (cover):** strongest single shot that instantly says what's special . usually the signature amenity or the view (hot tub w/ mountains, ski-in/out, the arcade). Must be sharp, bright, emotionally pulling.
+   Enforced in code (`NOT_COVER`): never a collage, map, neighbourhood/street scene, bathroom
+   or close-up detail, and never a reshoot-flagged shot. Collages are also kept out of the top 5.
+   When the current cover (lowest gallery order) breaks this, the gaps say so and name the swap.
+   Ties inside a score band go to the higher `ale_fit + emotion`, then gallery order, so a tie
+   does not just echo the host's current order back as a recommendation.
 2. **People in ≥1 of the top 5** (Experiences). If no good people shot exists → flag to stage one.
 3. **Top 5 MUST cover five distinct `subject_kind` beats**, not 5 of the same room: e.g. hero amenity
    → experience-with-people → key living space → bedroom → view/location. This is enforced in code

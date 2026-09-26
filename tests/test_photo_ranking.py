@@ -122,6 +122,43 @@ def test_empty_input_does_not_crash():
     assert r["hero"] is None and r["recommended_top5_order"] == []
 
 
+
+def _s(order, avg, kind, ale=4, emo=4, flags=None):
+    return {**_p(order, avg, kind, flags=flags), "ale_fit": ale, "emotion": emo}
+
+
+def test_collage_and_non_property_shots_never_become_the_cover():
+    """olde-town-ambler 2026-09-24: the machine cover was #0, a collage captioned with a
+    filename. The agent had to override it by hand. A street scene is not the property
+    either, and a bathroom or close-up detail is not a search thumbnail."""
+    photos = [_s(0, 4.0, "collage_multi"), _s(22, 4.17, "neighbourhood_area", ale=5),
+              _s(6, 4.0, "bathroom"), _s(14, 4.0, "amenity_detail"), _s(1, 4.0, "living_room")]
+    r = ap.aggregate(photos)
+    assert r["hero"] == 1, f"hero {r['hero']} is not the property"
+    assert 0 not in r["recommended_top5_order"], "a collage took a cover-set slot"
+    assert any("#0" in g and "collage_multi" in g for g in r["gaps"]), "current cover problem not named"
+
+
+def test_reshoot_flagged_photos_stay_out_of_the_cover_set():
+    photos = [_s(0, 5.0, "hot_tub", flags=["reshoot"]), _s(1, 4.0, "living_room"),
+              _s(2, 3.5, "kitchen_dining")]
+    r = ap.aggregate(photos)
+    assert r["hero"] == 1 and 0 not in r["recommended_top5_order"]
+
+
+def test_ties_go_to_the_photo_that_sells_not_the_current_gallery_slot():
+    """olde-town-ambler: seven photos tied at band 4.0 and gallery order broke the tie, so
+    the recommendation repeated the current order and #22 (Olde Town, ale_fit 5) lost a
+    cover slot to a bathroom (ale_fit 4)."""
+    photos = [_s(1, 4.0, "living_room"), _s(6, 4.0, "bathroom"), _s(7, 4.0, "deck_patio_yard"),
+              _s(8, 4.0, "bedroom"), _s(9, 4.0, "exterior"),
+              _s(22, 4.17, "neighbourhood_area", ale=5, emo=4)]
+    r = ap.aggregate(photos)
+    top5 = r["recommended_top5_order"]
+    assert 22 in top5, f"the strongest selling shot lost its slot: {top5}"
+    assert top5.index(22) == 1, f"#22 should lead the non-hero slots: {top5}"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
