@@ -244,3 +244,43 @@ def test_unreadable_claude_config_is_ignored(tmp_path, monkeypatch):
     bad.write_text("{not json")
     monkeypatch.setattr(lg, "CLAUDE_CONFIGS", [bad, tmp_path / "missing.json"])
     assert lg.configured_sources() == []
+
+
+# ── Live listing text + amenities (Boho Bliss 2026-09-26: the PMS description differed
+# from Airbnb's, and three reports told the host to tick Self check-in, already ticked). ──
+def test_rankbreeze_captures_live_copy_and_amenities_without_pricing():
+    s = _rb([{"position": 1, "url": MUS + "a.png"}])
+    s.responses["get_listing_content"].update({
+        "title": "Walk to UHNBC | Boho Suite", "short_description": "Short one.",
+        "long_description": "WHY GUESTS BOOK<br /><br />• 2-min walk", "amenities": ["Self check-in", "Wifi"]})
+    g = lg.from_rankbreeze(s, "111")
+    assert g["listing"]["title"] == "Walk to UHNBC | Boho Suite"
+    assert g["listing"]["description"] == "WHY GUESTS BOOK\n\n• 2-min walk"
+    assert g["listing"]["amenities"] == ["Self check-in", "Wifi"]
+    assert "250" not in json.dumps(g)
+
+
+def test_intellihost_captures_live_copy_but_not_amenities():
+    g = lg.from_intellihost(FakeSession({
+        "list-properties-tool": {"properties": [{"id": 5, "listing_id": "111"}]},
+        "get-listing-details-tool": {"photo_count": 1, "photos": [{"url": MUS + "a.jpg"}],
+                                     "title": "T", "description": "D<br />E", "price": 300}}), "111")
+    assert g["listing"] == {"title": "T", "summary": "", "description": "D\nE", "amenities": None}
+
+
+def test_digest_uses_live_copy_and_live_amenities_and_flags_pms_drift(tmp_path):
+    import build_digest as bd
+    (tmp_path / "subject.json").write_text(json.dumps({"data": {
+        "name": "Boho", "public_name": "Walk to UHNBC", "summary": "Same summary.",
+        "description": "Keurig + French press", "amenities": ["wifi"], "house_rules": {}}}))
+    (tmp_path / "comps.json").write_text(json.dumps({"comp_count": 2, "top_comps": [],
+        "market_amenity_frequency": [{"amenity": "Self check-in", "pct": 83}, {"amenity": "Wifi", "pct": 100}],
+        "comp_title_samples": []}))
+    (tmp_path / "live_gallery.json").write_text(json.dumps({**GOOD, "listing": {
+        "title": "Walk to UHNBC", "summary": "Same summary.", "description": "Keurig only",
+        "amenities": ["Self check-in", "Wifi"]}}))
+    out = bd.build(tmp_path)
+    assert "Keurig only" in out and "Keurig + French press" not in out, "digest critiqued the PMS copy"
+    assert "PMS copy differs from live Airbnb: description" in out
+    miss = next(line for line in out.splitlines() if line.startswith("missing_on_live_airbnb"))
+    assert "Self check-in" not in miss, "told the host to tick a box that is already ticked on Airbnb"

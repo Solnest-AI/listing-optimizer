@@ -7,7 +7,8 @@ held 54 photos (collage cover, 16 duplicate pairs) while Airbnb showed 32, with 
 cover and different captions. A photo plan built on the PMS copy was wrong for Airbnb.
 
 Sources, in order (the first configured one that knows the listing wins):
-  1. RankBreeze MCP   (RANKBREEZE_MCP_URL): full gallery, live order, captions.
+  1. RankBreeze MCP   (RANKBREEZE_MCP_URL): full gallery, live order, captions, and the live
+     title, summary, description and amenity checkboxes.
   2. IntelliHost MCP  (INTELLIHOST_MCP_TOKEN): live order, no captions. Premium-gated per
      property, and measured returning 29 of 42 photos whatever the limit, so a short list
      is marked incomplete rather than trusted as the whole gallery.
@@ -99,6 +100,12 @@ def _clean_url(u) -> str:
     return str(u or "").split("?")[0]
 
 
+def _text(html) -> str:
+    """Airbnb returns listing copy as HTML with <br /> line breaks."""
+    t = re.sub(r"<br\s*/?>", "\n", str(html or ""), flags=re.I)
+    return re.sub(r"<[^>]+>", "", t).strip()
+
+
 def from_rankbreeze(session, room_id: str) -> dict:
     cursor, rb_id = None, None
     for _ in range(50):
@@ -118,9 +125,13 @@ def from_rankbreeze(session, room_id: str) -> dict:
                     key=lambda i: int(i.get("position") or 0))
     photos = [{"position": int(i["position"]), "url": _clean_url(i.get("url")),
                "caption": str(i.get("caption") or "")} for i in images if i.get("position")]
+    listing = {"title": str(content.get("title") or ""), "summary": _text(content.get("short_description")),
+               "description": _text(content.get("long_description")),
+               "amenities": [str(a) for a in content.get("amenities") or [] if a]}
     return {"provider": "rankbreeze", "room_id": str(room_id),
             "fetched_at": content.get("fetched_at") or _now(),
-            "returned": len(photos), "reported": len(photos), "complete": True, "photos": photos}
+            "returned": len(photos), "reported": len(photos), "complete": True, "photos": photos,
+            "listing": listing}
 
 
 def from_intellihost(session, room_id: str) -> dict:
@@ -139,9 +150,12 @@ def from_intellihost(session, room_id: str) -> dict:
     urls = [_clean_url(p.get("url")) for p in d.get("photos") or [] if isinstance(p, dict)]
     photos = [{"position": i + 1, "url": u, "caption": ""} for i, u in enumerate(urls)]
     reported = d.get("photo_count") if isinstance(d.get("photo_count"), int) else len(photos)
+    # IntelliHost returns the whole description as one field and no amenity list.
+    listing = {"title": str(d.get("title") or ""), "summary": "", "description": _text(d.get("description")),
+               "amenities": None}
     return {"provider": "intellihost", "room_id": str(room_id), "fetched_at": _now(),
             "returned": len(photos), "reported": reported,
-            "complete": len(photos) >= reported, "photos": photos}
+            "complete": len(photos) >= reported, "photos": photos, "listing": listing}
 
 
 def validate(g: dict) -> dict:
@@ -157,6 +171,11 @@ def validate(g: dict) -> dict:
         seen.add(p["position"])
     if g.get("provider") not in ("rankbreeze", "intellihost"):
         raise ValueError("live gallery provider must be rankbreeze or intellihost")
+    listing = g.get("listing")
+    if listing is not None and (not isinstance(listing, dict)
+                                or not all(isinstance(listing.get(k, ""), str) for k in ("title", "summary", "description"))
+                                or not isinstance(listing.get("amenities") or [], list)):
+        raise ValueError("live listing must hold text title/summary/description and an amenity list")
     return g
 
 

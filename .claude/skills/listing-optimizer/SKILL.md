@@ -94,12 +94,16 @@ live gallery when it can, in this order:
    match `listing_id`, then `get-listing-details-tool` with `include_photos: true,
    photo_limit: 50`, positions 1..N, `complete` = returned >= `photo_count`. Write
    `{"provider":"rankbreeze"|"intellihost","room_id":"","fetched_at":"","complete":true,
-   "returned":N,"reported":N,"photos":[{"position":1,"url":"https://a0.muscache.com/...","caption":""}]}`.
-   Copy URLs exactly. Never copy prices, fees or minimum stays into it.
+   "returned":N,"reported":N,"photos":[{"position":1,"url":"https://a0.muscache.com/...","caption":""}],
+   "listing":{"title":"","summary":"","description":"","amenities":[]}}`. RankBreeze `listing`:
+   title, short_description, long_description (turn `<br />` into line breaks), amenities.
+   IntelliHost: title and description only, `amenities` null. Copy text and URLs exactly.
+   Never copy prices, fees or minimum stays into it.
 4. Neither: the PMS gallery is ranked and the report says it was not checked against Airbnb.
 
 With a live gallery, photo numbers are Airbnb positions (1 = current cover) and captions are
-edited on Airbnb. Say which gallery the plan uses; never present PMS findings as Airbnb facts.
+edited on Airbnb. The digest's copy and amenity gaps then come from the live listing too
+(`copy_source`, `missing_on_live_airbnb`); if it says the PMS copy differs, report that. Say which gallery the plan uses; never present PMS findings as Airbnb facts.
 
 ## 2b. Photo fallback (only when the digest says PHOTO FALLBACK REQUIRED)
 

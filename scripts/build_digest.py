@@ -102,12 +102,26 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
     keys = ("name", "public_name", "summary", "description", "amenities",
             "capacity", "room_details", "house_rules")
     subject = {k: s.get(k) for k in keys}
+    # The live Airbnb copy, when RankBreeze/IntelliHost supplied it, is what guests read and
+    # what the report must critique. The PMS copy can differ (Boho Bliss 2026-09-26).
+    live = ((_read(d, "live_gallery.json") or {}).get("listing") or {})
+    drift = []
+    for field, live_key in (("public_name", "title"), ("summary", "summary"), ("description", "description")):
+        lv = live.get(live_key)
+        if isinstance(lv, str) and lv.strip():
+            if " ".join(str(subject.get(field) or "").split()) != " ".join(lv.split()):
+                drift.append(live_key)
+            subject[field] = lv
     # Bound only prose. Never truncate serialized JSON and silently lose facts
     # appearing after a long description (capacity, amenities and house rules).
     for key, limit in (("description", SUBJECT_TRUNC), ("summary", 1200)):
         if isinstance(subject[key], str) and len(subject[key]) > limit:
             subject[key] = subject[key][:limit] + " [truncated; remaining text available in subject.json]"
     A("# SUBJECT\n" + json.dumps(subject, ensure_ascii=False))
+    if live:
+        A("copy_source: LIVE Airbnb listing (title/summary/description above are what guests read now)"
+          + (f". PMS copy differs from live Airbnb: {', '.join(drift)}. Say so; edits made only in the PMS "
+             f"may not be reaching Airbnb." if drift else ". PMS copy matches."))
     status = _status(d)
     problems = [s for s in status.get("steps", []) if s.get("status") == "FAILED"]
     if problems:
@@ -135,7 +149,9 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
     # Computed diff, not a frequency dump: the most common comp amenities are universal
     # basics, and PMS keys do not match AirROI labels, so the model cannot diff them by eye.
     if c.get("market_amenity_frequency"):
-        gap = amenities.compare(s.get("amenities"), s.get("house_rules"),
+        live_amenities = live.get("amenities") if isinstance(live.get("amenities"), list) else None
+        gap = amenities.compare(live_amenities if live_amenities is not None else s.get("amenities"),
+                                s.get("house_rules"),
                                 c.get("market_amenity_frequency"), c.get("top_comps"),
                                 f"{s.get('public_name') or ''} {s.get('summary') or ''}")
 
@@ -143,8 +159,12 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
             return "; ".join(f"{g['amenity']} {g['pct']}% ({g['top_hits']}/{g['top_n']} top)"
                              for g in rows) or "none"
 
-        A(f"missing_from_pms (in >={amenities.MISSING_MIN_PCT}% of comps, not in the PMS amenity "
-          f"list or house rules): {fmt(gap['missing'][:15])}")
+        if live_amenities is not None:
+            A(f"missing_on_live_airbnb (in >={amenities.MISSING_MIN_PCT}% of comps, not ticked on the live "
+              f"Airbnb listing): {fmt(gap['missing'][:15])}")
+        else:
+            A(f"missing_from_pms (in >={amenities.MISSING_MIN_PCT}% of comps, not in the PMS amenity "
+              f"list or house rules; the live Airbnb checkboxes were not checked): {fmt(gap['missing'][:15])}")
         A(f"have_but_title_summary_never_say (in <={amenities.DIFFERENTIATOR_MAX_PCT}% of comps): "
           f"{fmt(gap['unsurfaced'][:10])}")
         if gap["subject_list_empty"]:
