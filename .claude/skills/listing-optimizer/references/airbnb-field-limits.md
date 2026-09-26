@@ -50,8 +50,10 @@ Step-8 write-back "succeeds" but the re-read shows the old content, this is the 
 tell the user to unlock the field on Airbnb or paste manually.
 
 ## Enforcement in this system
-- The optimizer MUST count characters on the title (≤50) and summary (≤500) before rendering —
-  state the counts in result.json (`summary_char_count`).
+- The renderer (`render_report.validate_result`) enforces the title (≤50) and summary (≤500)
+  caps, captions ≤250, no phone/email/URL in any paste field, and the title style rules
+  (no emoji, no mostly-capitals, no repeated special characters). It derives
+  `summary_char_count`; the agent does not write it.
 - Keep generated captions ≤250 chars each; lead "The Space" with its strongest 1,000 chars.
 - Photo plan: respect that only ~the first 5 photos drive the click decision; the map photo
   belongs in the top 10; aim the final gallery at 20–35 shots.

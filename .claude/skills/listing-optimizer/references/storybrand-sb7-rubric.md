@@ -39,7 +39,7 @@ The one rule: **the guest is the Hero, not the property.** The listing is the Gu
 
 | ALE copy channel | SB7 job |
 |---|---|
-| **Title** | Hero + the #1 desire/amenity in ~50 chars ("Family Ski Retreat \| Hot Tub • Arcade • Ski-in/out") |
+| **Title** | Hero + the #1 desire/amenity in ≤50 chars, sentence case, no emojis ("Family ski retreat · hot tub, arcade, ski-in/out") |
 | **500-char Summary** | Hero + Problem (internal) → Guide (empathy+authority) → Plan/Location → **direct CTA**. Mirrors ALE's 4 jobs. |
 | **"The Space"** | Guide authority via specifics + Success painted room-by-room; keyword-loaded but still story-driven |
 | **Captions** | micro-Success moments — sell the *feeling* of each shot, not the furniture |
