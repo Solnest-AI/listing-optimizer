@@ -384,6 +384,11 @@ def _rank_key(p: dict) -> tuple:
 NOT_COVER = {"collage_multi", "location_map", "neighbourhood_area", "bathroom", "amenity_detail"}
 # Beats kept out of the five-photo cover set entirely.
 NOT_TOP5 = {"collage_multi"}
+# Off-property or pure-scenery beats: at most one in the cover set. A skier at a ski hill two
+# hours away and a snowcat at sunset both made one listing's top 5 (boho-bliss 2026-09-26).
+LOCATION_BEATS = {"neighbourhood_area", "view_scenery"}
+# The rubric's cover set includes where guests sleep.
+SLEEP_BEATS = {"primary_bedroom", "bedroom"}
 
 
 def _cover_ok(p: dict) -> bool:
@@ -424,6 +429,8 @@ def aggregate(scored: list[dict]) -> dict:
         if len(top5) == 5:
             break
         b = _beat(p)
+        if b in LOCATION_BEATS and seen_beats & LOCATION_BEATS:
+            continue
         if b not in seen_beats and _top5_ok(p):
             top5.append(p["order"])
             seen_beats.add(b)
@@ -446,7 +453,19 @@ def aggregate(scored: list[dict]) -> dict:
             people_swap = {"added": person["order"], "removed": weakest}
             break
 
-    # Re-sort after the swap: hero first, then strongest-first on the banded score.
+    # Sleeping rule: the cover set shows where guests sleep when the gallery has a usable
+    # bedroom shot. Evict the weakest slot that is not the hero and not the only people shot.
+    sleep = next((p for p in ok if p.get("subject_kind") in SLEEP_BEATS and _top5_ok(p)), None)
+    if sleep and not any(by_order[o].get("subject_kind") in SLEEP_BEATS for o in top5):
+        people_in = [o for o in top5 if by_order[o].get("has_people")]
+        evictable = [o for o in top5 if o != hero and people_in != [o]]
+        if len(top5) < 5:
+            top5.append(sleep["order"])
+        elif evictable:
+            weakest = max(evictable, key=lambda o: _rank_key(by_order[o]))
+            top5 = [o for o in top5 if o != weakest] + [sleep["order"]]
+
+    # Re-sort after the swaps: hero first, then strongest-first on the banded score.
     top5 = sorted(top5, key=lambda o: (o != hero, _rank_key(by_order[o]))) if hero is not None else []
 
     gaps = []

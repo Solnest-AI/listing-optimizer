@@ -159,6 +159,34 @@ def test_ties_go_to_the_photo_that_sells_not_the_current_gallery_slot():
     assert top5.index(22) == 1, f"#22 should lead the non-hero slots: {top5}"
 
 
+
+def test_off_property_scenery_takes_at_most_one_cover_slot_and_a_bedroom_gets_one():
+    """boho-bliss 2026-09-26 (live Airbnb gallery): the top 5 held a skier at Powder King (#36)
+    AND a snowcat at sunset (#47), both off the property, and no bedroom, on a listing where
+    4.69% of visitors book vs 34% for similar listings. The rubric's cover set is hero
+    amenity, experience with people, key living space, bedroom, view/location."""
+    photos = [_s(45, 5.0, "fire_pit", ale=5, emo=5), _s(47, 4.67, "view_scenery", ale=5, emo=5),
+              _s(11, 4.67, "fire_pit"), _s(36, 4.33, "neighbourhood_area", ale=5, emo=5),
+              _s(31, 4.17, "neighbourhood_area"), _s(8, 4.0, "kitchen_dining"),
+              _s(29, 4.0, "exterior"), _s(1, 3.83, "living_room"), _s(12, 3.17, "bedroom"),
+              _s(17, 2.0, "bedroom", flags=["reshoot"])]
+    photos[0]["has_people"] = photos[3]["has_people"] = True
+    r = ap.aggregate(photos)
+    beats = r["top5_beats"]
+    assert sum(b in ("view_scenery", "neighbourhood_area") for b in beats) <= 1, beats
+    assert 12 in r["recommended_top5_order"], f"no bedroom in the cover set: {r['recommended_top5_order']}"
+    assert 17 not in r["recommended_top5_order"], "a reshoot-flagged bedroom took the slot"
+    assert r["hero"] == 45
+
+
+def test_bedroom_rule_never_evicts_the_only_people_shot():
+    photos = [_s(0, 5.0, "hot_tub"), _s(1, 4.5, "living_room"), _s(2, 4.5, "kitchen_dining"),
+              _s(3, 4.0, "exterior"), _s(4, 3.5, "deck_patio_yard"), _s(5, 3.0, "bedroom")]
+    photos[4]["has_people"] = True
+    r = ap.aggregate(photos)
+    assert 4 in r["recommended_top5_order"] and 5 in r["recommended_top5_order"]
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
