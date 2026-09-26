@@ -158,6 +158,17 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
     p = _read(d, "photo_scores.json") or {}
     A(f"\n# PHOTOS hero={p.get('hero')} top5={p.get('recommended_top5_order')} "
       f"reshoot={p.get('reshoot')} restage={p.get('restage')}")
+    src = p.get("gallery_source") or {}
+    if src.get("kind") == "live_airbnb":
+        A(f"gallery: LIVE Airbnb gallery via {src.get('provider')} (fetched {src.get('fetched_at')}). "
+          f"Photo numbers are Airbnb positions (1 = the current cover). Caption and reorder by these."
+          + ("" if src.get("complete", True) else
+             f" INCOMPLETE: {src.get('returned')} of {src.get('reported')} photos returned; say the "
+             f"rest were not assessed."))
+    elif p:
+        A(f"gallery: PMS copy ({src.get('provider') or 'unknown'}), not verified against the live Airbnb "
+          f"listing. The live order, captions and even which photos appear can differ. Say so in the "
+          f"report; photo numbers are PMS positions.")
     if p.get("top5_beats"):
         A(f"top5_beats: {p['top5_beats']}   (each slot must be a DIFFERENT beat)")
     if p.get("coverage_note"):

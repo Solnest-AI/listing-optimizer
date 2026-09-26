@@ -95,6 +95,9 @@
   {% if data.photos %}
   <h2>Photo Plan</h2>
   <div class="card">
+    {% set gs = data.photos.gallery_source or {} %}
+    {% if gs.kind == 'live_airbnb' %}<p><strong>Gallery:</strong> live Airbnb listing via {{ gs.provider }}. Photo numbers are Airbnb photo positions (1 = the current cover).</p>
+    {% elif gs.kind %}<p><strong>Gallery:</strong> PMS copy ({{ gs.provider }}), not checked against the live Airbnb listing. Photo numbers are PMS positions; confirm the order on Airbnb before moving photos.</p>{% endif %}
     {% if data.photos.coverage_note %}<p><strong>Coverage:</strong> {{ data.photos.coverage_note }}</p>{% endif %}
     {% if data.photos.unranked %}<p class="flag"><strong>Unranked photos:</strong> {{ data.photos.unranked | join(', ') }}</p>{% endif %}
     <div><strong>Hero:</strong> {% if data.photos.hero is not none %}photo #{{ data.photos.hero }}{% else %}unavailable{% endif %} &nbsp;·&nbsp;

@@ -90,6 +90,17 @@ downloads**. This is one measured sample, not a guarantee for every gallery. Sce
 matched, but scores and the selected cover differed. Treat vision scores as recommendations,
 not objective measurements. `analyze_photos.py --batch-size 1 --no-cache` enables a fresh individual comparison.
 
+## Which photos get ranked: live Airbnb gallery vs your PMS
+
+Your PMS copy of the gallery can differ from what guests see on Airbnb (one real listing:
+54 photos with a collage cover in the PMS, 32 with a different cover on Airbnb). Add
+`RANKBREEZE_MCP_URL` or `INTELLIHOST_MCP_TOKEN` to `.env` (see `.env.example`) and the
+photo plan uses the live Airbnb gallery, numbered by Airbnb position. RankBreeze returns the
+full gallery with captions. IntelliHost needs Premium on the property, returns no captions,
+and a short list is reported as incomplete. With neither, the PMS gallery is ranked and the
+report says it was not checked against Airbnb. If RankBreeze or IntelliHost is connected in
+Claude instead of `.env`, Claude stages the live gallery itself before the run.
+
 ## Refresh, recovery and stopping
 
 | Option | Behavior |

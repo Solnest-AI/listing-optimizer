@@ -17,7 +17,7 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["airroi_client", "ale", "amenities", "analyze_photos", "artifacts", "build_digest", "cache",
-                     "cadence", "hospitable_api", "memory", "occupancy", "photo_dupes", "pull_comps",
+                     "cadence", "hospitable_api", "live_gallery", "mcp_http", "memory", "occupancy", "photo_dupes", "pull_comps",
                      "render_report", "run_pipeline"]
 
 [tool.pytest.ini_options]

@@ -27,13 +27,14 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import artifacts
+import live_gallery
 
 ROOT = Path(__file__).resolve().parent.parent
 PY = sys.executable
 SCRIPTS = ROOT / "scripts"
 SLUG_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 SKIPPABLE = {"reviews", "calendar", "comps", "photos", "memory", "channels"}
-MANAGED = {"subject.json", "images.json", "reviews.json", "channels.json", "calendar.json",
+MANAGED = {"subject.json", "images.json", "live_gallery.json", "reviews.json", "channels.json", "calendar.json",
            "reservations.json", "occupancy.json", "prior_runs.json", "comps.json", "photo_scores.json", "cadence.json"}
 CRITICAL = ("subject", "digest")
 PHOTO_LIMIT_DEFAULT = 60  # keep equal to analyze_photos.DEFAULT_LIMIT (tested)
@@ -76,6 +77,50 @@ def run(cmd: list, label: str) -> tuple[bool, str]:
 
 def hosp(sub: str, out: Path, pid: str, extra=()) -> list:
     return [PY, SCRIPTS / "hospitable_api.py", sub, "--property-id", pid, "--out", out, *extra]
+
+
+def live_gallery_step(wd: Path, room_id, runner=None) -> tuple[str, str]:
+    """Build images.json from the LIVE Airbnb gallery when a source can supply it.
+
+    The PMS copy of a gallery can differ from what guests see (measured: PMS 54 photos with
+    a collage cover, Airbnb 32 with a different cover). Order: a configured RankBreeze or
+    IntelliHost key fetches fresh; otherwise a live_gallery.json the agent staged from its
+    own connected MCP tools; otherwise the PMS gallery, and the report says so.
+    Returns ("ok" | "skipped", detail). Only "ok" writes images.json.
+    """
+    runner = runner or run
+    target = wd / "live_gallery.json"
+    fallback = "photo plan uses the PMS gallery"
+    if room_id and live_gallery.configured_sources():
+        target.unlink(missing_ok=True)
+        ok, msg = runner([PY, SCRIPTS / "live_gallery.py", "--room-id", room_id, "--out", target],
+                         "live gallery")
+        if not ok:
+            return "skipped", f"{msg[:160]}; {fallback}"
+        detail = msg
+    elif target.exists():
+        detail = "using the agent-staged live_gallery.json"
+    else:
+        why = "no RankBreeze or IntelliHost connection" if room_id else "no Airbnb listing id in subject.json"
+        return "skipped", f"{why}; {fallback}"
+    try:
+        gallery = live_gallery.validate(json.loads(target.read_text(encoding="utf-8")))
+    except (OSError, ValueError) as e:
+        return "skipped", f"live_gallery.json is invalid ({str(e)[:80]}); {fallback}"
+    artifacts.write_json(wd / "images.json", live_gallery.to_images(gallery))
+    return "ok", detail
+
+
+def _tag_pms_images(path: Path, provider: str) -> None:
+    """Label a PMS-sourced images.json so the digest and report can say which gallery the
+    photo plan was built on."""
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if isinstance(raw, dict) and not isinstance(raw.get("_source"), dict):
+        raw["_source"] = {"kind": "pms", "provider": provider}
+        artifacts.write_json(path, raw)
 
 
 def subject_params(workdir: Path) -> dict:
@@ -226,11 +271,22 @@ def main():
         print(f"[run_pipeline] 1 step(s) failed: subject: {subject_step.detail}")
         sys.exit(1)
 
-    # ── Images / reviews ──
+    # ── Images: the live Airbnb gallery when a source can supply it, else the PMS copy ──
     if "photos" in skip:
+        steps.append(Step("live gallery").skip("--skip photos"))
         steps.append(Step("images").skip("--skip photos"))
     else:
-        gather("images", "images", "images.json")
+        live = Step("live gallery")
+        steps.append(live)
+        status, detail = live_gallery_step(wd, params.get("airbnb_id"))
+        if status == "ok":
+            live.done(detail)
+            usable.update({"images.json", "live_gallery.json"})
+            steps.append(Step("images").skip("live Airbnb gallery used instead of the PMS copy"))
+        else:
+            live.skip(detail)
+            if gather("images", "images", "images.json").status != "FAILED":
+                _tag_pms_images(wd / "images.json", "Hospitable" if args.pid else "staged PMS files")
     gather("reviews", "reviews", "reviews.json",
            ("--all-reviews",) if args.all_reviews else ("--review-limit", str(args.review_limit)))
 

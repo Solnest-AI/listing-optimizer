@@ -39,6 +39,10 @@
 
 ## Photo Plan
 
+{% set gs = data.photos.gallery_source or {} %}
+{% if gs.kind == 'live_airbnb' %}**Gallery:** live Airbnb listing via {{ gs.provider }}. Photo numbers are Airbnb photo positions (1 = the current cover).
+{% elif gs.kind %}**Gallery:** PMS copy ({{ gs.provider }}), not checked against the live Airbnb listing. Photo numbers are PMS positions; confirm the order on Airbnb before moving photos.
+{% endif %}
 {% if data.photos.coverage_note %}**Coverage:** {{ data.photos.coverage_note }}
 {% endif %}
 {% if data.photos.unranked %}**Unranked photos:** {{ data.photos.unranked | join(', ') }}

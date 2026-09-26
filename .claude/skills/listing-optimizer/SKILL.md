@@ -76,6 +76,29 @@ read tools are connected. Pull metrics and rankings once, save `funnel.json`, th
 with `scripts/build_digest.py <workdir>`. Never fetch competitor rates. Listing views are
 visits; search impressions are appearances. Treat scraped occupancy as a cross-check.
 
+## 2a. Live Airbnb gallery (which photos guests actually see)
+
+The PMS copy of a gallery can differ from the live Airbnb listing (measured: PMS 54 photos
+with a collage cover, Airbnb 32 with a different cover and captions). The pipeline ranks the
+live gallery when it can, in this order:
+
+1. `RANKBREEZE_MCP_URL` in `.env`: full gallery, live order and captions.
+2. `INTELLIHOST_MCP_TOKEN` in `.env`: live order, no captions, Premium-gated per property.
+   A short list is marked incomplete ("29 of 42"), never treated as the whole gallery.
+3. No key, but RankBreeze or IntelliHost tools are connected in Claude: before running the
+   pipeline, stage `output/<DATE>/<SLUG>/live_gallery.json` yourself. RankBreeze:
+   `get_user_listings` (follow `nextCursor`) to find the row whose `room_id` is the Airbnb id,
+   then `get_listing_content` with `include_images: true`. IntelliHost: `list-properties-tool`,
+   match `listing_id`, then `get-listing-details-tool` with `include_photos: true,
+   photo_limit: 50`, positions 1..N, `complete` = returned >= `photo_count`. Write
+   `{"provider":"rankbreeze"|"intellihost","room_id":"","fetched_at":"","complete":true,
+   "returned":N,"reported":N,"photos":[{"position":1,"url":"https://a0.muscache.com/...","caption":""}]}`.
+   Copy URLs exactly. Never copy prices, fees or minimum stays into it.
+4. Neither: the PMS gallery is ranked and the report says it was not checked against Airbnb.
+
+With a live gallery, photo numbers are Airbnb positions (1 = current cover) and captions are
+edited on Airbnb. Say which gallery the plan uses; never present PMS findings as Airbnb facts.
+
 ## 2b. Photo fallback (only when the digest says PHOTO FALLBACK REQUIRED)
 
 Gemini was missing or failed on some photos. Open `photo_fallback.json` in the working

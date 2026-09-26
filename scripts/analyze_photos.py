@@ -142,6 +142,24 @@ def load_photos(path: Path) -> list[dict]:
     return photos
 
 
+def load_source(path: Path) -> dict:
+    """Which gallery the photos came from (live Airbnb or the PMS copy), from images.json."""
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"kind": "pms", "provider": "unknown"}
+    src = raw.get("_source") if isinstance(raw, dict) else None
+    return src if isinstance(src, dict) else {"kind": "pms", "provider": "unknown"}
+
+
+def source_note(src: dict) -> str:
+    if src.get("kind") == "live_airbnb" and not src.get("complete", True):
+        missing = int(src.get("reported") or 0) - int(src.get("returned") or 0)
+        return (f"{src.get('provider')} returned {src.get('returned')} of {src.get('reported')} live "
+                f"Airbnb photos; the last {missing} were not assessed")
+    return ""
+
+
 # ── Gemini scoring ────────────────────────────────────────────────────
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_INLINE_BYTES = 18 * 1024 * 1024  # room for schema/text under the vendor's 20MB cap
@@ -669,6 +687,9 @@ def main():
     result["model"] = args.model
     result["usage"] = stats
     result["rubric_version"] = RUBRIC_VERSION
+    result["gallery_source"] = load_source(Path(args.photos))
+    if source_note(result["gallery_source"]):
+        result["coverage_note"] += "; " + source_note(result["gallery_source"])
     result["gallery_count"] = len(gallery)
     result["not_submitted_count"] = len(gallery) - len(photos)
     if len(gallery) > len(photos):

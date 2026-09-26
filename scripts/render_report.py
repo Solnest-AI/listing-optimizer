@@ -132,12 +132,15 @@ def build_paste_block(data: dict) -> str:
     lines.append("--- THE SPACE ---")
     lines.append(o.get("the_space", "").strip() + "\n")
     caps = o.get("captions", [])
+    live = ((data.get("photos") or {}).get("gallery_source") or {}).get("kind") == "live_airbnb"
     if caps:
         lines.append("--- PHOTO CAPTIONS (recommended order) ---")
         for c in caps:
             order, subj = c.get("order"), c.get("subject", "")
             if c.get("new_photo"):
                 tag = f"[NEW PHOTO to create: {subj}]"
+            elif live and order is not None:
+                tag = f"[Airbnb photo {order}: {subj}]"
             else:
                 tag = f"[#{order} {subj}]" if order is not None else f"[{subj}]"
             lines.append(f"{tag} {c.get('caption', '').strip()}")
@@ -161,6 +164,7 @@ def _photos_block(ps: dict) -> dict:
         "restage": ps.get("restage") or [],
         "gaps": ps.get("gaps") or [],
         "coverage_note": ps.get("coverage_note"),
+        "gallery_source": ps.get("gallery_source") or {"kind": "pms", "provider": "unknown"},
         "unranked": [f.get("order") for f in (ps.get("failed") or [])],
         "scored": [{"order": p.get("order"), "url": p.get("url"),
                     "subject": p.get("subject"), "subject_kind": p.get("subject_kind"),
