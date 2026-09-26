@@ -246,6 +246,17 @@ def merge_machine_blocks(data: dict, workdir: Path) -> list[str]:
     return filled
 
 
+def caption_order_note(data: dict) -> str | None:
+    """A caption list whose first five photos are not the machine top 5 contradicts the
+    Photo Plan in the same report. Overrides are allowed, so this warns rather than fails."""
+    top5 = list((data.get("photos") or {}).get("recommended_top5_order") or [])
+    first = [c.get("order") for c in (data.get("optimized") or {}).get("captions") or []][:len(top5)]
+    if not top5 or set(first) == set(top5):
+        return None
+    return (f"caption order starts {first} but the Photo Plan recommends {top5}; align them or "
+            f"explain the override in the scorecard")
+
+
 def validate_result(data: dict) -> None:
     """Reject unusable paste copy before creating any deliverables."""
     if not isinstance(data, dict) or not isinstance(data.get("listing"), dict):
@@ -353,6 +364,8 @@ def main():
             merged = merge_machine_blocks(data, Path(args.workdir))
             if merged:
                 print(f"[render_report] merged from disk: {', '.join(merged)}")
+            if caption_order_note(data):
+                print(f"[render_report] WARNING: {caption_order_note(data)}")
     except (OSError, ValueError) as e:
         sys.exit(f"[render_report] invalid result: {e}")
     # branding.json is per-user (gitignored); fall back to the shipped example.

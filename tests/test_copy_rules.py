@@ -82,3 +82,14 @@ def test_captions_for_photos_not_in_the_gallery_are_labelled_new(tmp_path):
 def test_em_dash_rewrite_leaves_real_sentences(before, after):
     key = "airbnb_url" if before.startswith("http") else "summary"
     assert rr.normalize_prose({key: before})[key] == after
+
+
+def test_caption_order_that_contradicts_the_photo_plan_is_flagged():
+    """boho-bliss 2026-09-26 pass 5: the Photo Plan said 45 -> 30 -> 1 -> 8 -> 12 while the
+    captions list led 45, 31, 1, 8, 12. Overrides are allowed but must be visible."""
+    data = {"optimized": {"captions": [{"order": o} for o in (45, 31, 1, 8, 12, 11)]},
+            "photos": {"recommended_top5_order": [45, 30, 1, 8, 12]}}
+    msg = rr.caption_order_note(data)
+    assert msg and "31" in msg and "30" in msg
+    data["optimized"]["captions"][1]["order"] = 30
+    assert rr.caption_order_note(data) is None
