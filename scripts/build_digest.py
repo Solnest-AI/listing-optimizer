@@ -21,6 +21,7 @@ import amenities
 import artifacts
 
 REVIEW_CAP = 20
+REVIEW_CHARS = 700
 SUBJECT_TRUNC = 6000
 RAW_FILES = ("subject.json", "comps.json", "photo_scores.json", "reviews.json")
 
@@ -212,10 +213,19 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
             cat.setdefault(dr.get("type"), []).append(v / div)
         if not r.get("responded_at"):
             unanswered += 1
-    for r in sorted(rv, key=lambda x: str(x.get("reviewed_at")), reverse=True)[:review_cap]:
+    shown = sorted(rv, key=lambda x: str(x.get("reviewed_at")), reverse=True)[:review_cap]
+    for r in shown:
         pub = _lit(r.get("public"))
+        # 700, not 320: complaints sit at the END of a review ("Only downside was...").
         A(f"- {str(r.get('reviewed_at'))[:10]} {pub.get('rating')}* "
-          f"{str(pub.get('review') or '')[:320]}")
+          f"{' '.join(str(pub.get('review') or '').split())[:REVIEW_CHARS]}")
+    private = [(str(r.get("reviewed_at"))[:10], " ".join(str(_lit(r.get("private")).get("feedback")).split()))
+               for r in shown if _lit(r.get("private")).get("feedback")]
+    if private:
+        A("PRIVATE FEEDBACK (guest-to-host only: use it to find fixes and expectation gaps, "
+          "NEVER quote or paraphrase it in public copy):")
+        for when, text in private:
+            A(f"- {when} {text[:400]}")
     scope = "all" if complete else f"last {len(rv)} only"
     # n= is part of the value: a category rated by 3 guests is not evidence of the same
     # weight as one rated by 19, and an unrated category is absent rather than zero.

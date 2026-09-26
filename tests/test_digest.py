@@ -382,3 +382,24 @@ def test_amenity_gaps_are_computed_not_left_to_the_model(tmp_path):
     assert "Pets allowed" not in missing_line and "Bed linens" not in missing_line
     assert "Hot tub 20%" in out, "differentiator absent from the title/summary not flagged"
     assert "market_amenity_freq(top30)" not in out
+
+
+def test_review_complaint_at_the_end_survives_and_private_feedback_is_carried(tmp_path):
+    """olde-town-ambler 2026-09-24: the 320-char cut ended a real review mid-complaint.
+    Complaints sit at the end. Private feedback (7 of the last 20 reviews) was never shown.
+    Fixture text is synthetic: guest reviews and private feedback never go in the repo."""
+    body = ("Lovely home in a great spot, and the kitchen had everything we needed for the "
+            "week. " * 4) + "Only downside was the upstairs bedroom running warm at night."
+    reviews = {"data": [{"reviewed_at": "2026-08-02", "platform": "airbnb",
+                         "public": {"rating": 5, "review": body},
+                         "private": {"feedback": "The hallway smoke alarm chirped once overnight.",
+                                     "detailed_ratings": []}},
+                        {"reviewed_at": "2026-08-01", "platform": "airbnb",
+                         "public": {"rating": 5, "review": "Great."},
+                         "private": {"feedback": None, "detailed_ratings": []}}]}
+    (tmp_path / "subject.json").write_text(json.dumps({"data": {"name": "x"}}))
+    (tmp_path / "reviews.json").write_text(json.dumps(reviews))
+    out = bd.build(tmp_path)
+    assert "running warm at night." in out, "the complaint at the end was cut"
+    assert "smoke alarm chirped once overnight" in out
+    assert "never quote" in out.lower(), "private feedback must carry its no-quote rule"

@@ -93,6 +93,8 @@ Read `digest.md` and these references when writing:
 - `references/airbnb-field-limits.md`
 - `references/photo-rubric.md` only when interpreting/changing the photo plan
 
+Private feedback in the digest is guest-to-host: use it to find fixes and expectation
+gaps (for example, set A/C expectations in The Space), never quote or paraphrase it.
 Review aggregates cover the pulled window, not automatically lifetime. Unrated categories
 are absent, not zero. Respect sample sizes and scale warnings. Account-level channels do
 not prove that every channel is connected to this particular listing. Missing review text
