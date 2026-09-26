@@ -26,6 +26,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import httpx
@@ -54,11 +55,37 @@ def _token() -> str:
     return t
 
 
+ATTEMPTS = 3
+MAX_WAIT = 30.0  # seconds; caps a server-supplied Retry-After
+
+
+def _wait(r, attempt: int) -> float:
+    try:
+        return min(float(r.headers.get("Retry-After")), MAX_WAIT)
+    except (TypeError, ValueError):
+        return float(2 ** attempt)
+
+
 def _get(path: str, params: dict | None = None) -> dict:
-    r = httpx.get(BASE.rstrip("/") + path, params=params or {},
-                  headers={"Authorization": f"Bearer {_token()}",
-                           "Accept": "application/json"},
-                  timeout=TIMEOUT)
+    """GET with bounded retries on rate limits, server errors and network blips.
+    Auth and client errors are not retried."""
+    for attempt in range(ATTEMPTS):
+        last = attempt + 1 == ATTEMPTS
+        try:
+            r = httpx.get(BASE.rstrip("/") + path, params=params or {},
+                          headers={"Authorization": f"Bearer {_token()}",
+                                   "Accept": "application/json"},
+                          timeout=TIMEOUT)
+        except httpx.TransportError as e:
+            if last:
+                sys.exit(f"[hospitable_api] network error on {path} after {ATTEMPTS} attempts "
+                         f"({type(e).__name__})")
+            time.sleep(float(2 ** attempt))
+            continue
+        if r.status_code in (429, 500, 502, 503, 504) and not last:
+            time.sleep(_wait(r, attempt))
+            continue
+        break
     if r.status_code == 401:
         sys.exit("[hospitable_api] 401 Unauthorized — the HOSPITABLE_TOKEN is invalid or expired.")
     if r.status_code >= 400:
