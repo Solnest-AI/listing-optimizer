@@ -38,3 +38,16 @@ def test_html_report_does_not_paint_no_record_green():
         "branding": {}, "cadence": {"due": [{"item": "Full reshoot", "last": "no record",
                                              "due": "unknown", "status": "no record"}]}})
     assert "b-good" not in html.split("Full reshoot")[1][:300]
+
+
+def test_markdown_photo_plan_keeps_hero_and_order_on_separate_lines():
+    """olde-town-ambler 2026-09-25 rendered '- **Hero:** photo #50- **Recommended order:**'
+    on one line: trim_blocks ate the newline after the hero's {% endif %}."""
+    from jinja2 import Environment, FileSystemLoader
+    root = Path(__file__).resolve().parent.parent
+    env = Environment(loader=FileSystemLoader(str(root / ".claude/skills/listing-optimizer/output-templates")),
+                      trim_blocks=True, lstrip_blocks=True)
+    md = env.get_template("report.md.j2").render(data={
+        "listing": {"name": "x"}, "optimized": {"title": "t", "summary": "s", "the_space": "sp"},
+        "branding": {}, "photos": {"hero": 50, "recommended_top5_order": [50, 52]}})
+    assert "- **Hero:** photo #50\n- **Recommended order:** 50 → 52" in md

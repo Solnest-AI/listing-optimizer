@@ -43,7 +43,7 @@
 {% endif %}
 {% if data.photos.unranked %}**Unranked photos:** {{ data.photos.unranked | join(', ') }}
 {% endif %}
-- **Hero:** {% if data.photos.hero is not none %}photo #{{ data.photos.hero }}{% else %}unavailable{% endif %}
+- **Hero:** {{ ('photo #' ~ data.photos.hero) if data.photos.hero is not none else 'unavailable' }}
 - **Recommended order:** {{ (data.photos.recommended_top5_order or []) | join(' → ') }}
 {% if data.photos.reshoot %}- **Reshoot:** {{ data.photos.reshoot | join(', ') }}{% endif %}
 {% if data.photos.restage %}- **Restage:** {{ data.photos.restage | join(', ') }}{% endif %}
