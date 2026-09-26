@@ -17,6 +17,7 @@ import json
 import sys
 from pathlib import Path
 
+import amenities
 import artifacts
 
 REVIEW_CAP = 20
@@ -124,8 +125,27 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
           f"{t.get('guests')}g | {r.get('rating_overall')}* ({r.get('num_reviews')}rev) | "
           f"occ {p.get('ttm_occupancy')}")
     A("title_samples: " + json.dumps(c.get("comp_title_samples") or [], ensure_ascii=False)[:900])
-    A("market_amenity_freq(top30): "
-      + ", ".join(f"{a['amenity']}={a['pct']}%" for a in (c.get("market_amenity_frequency") or [])[:30]))
+    # Computed diff, not a frequency dump: the most common comp amenities are universal
+    # basics, and PMS keys do not match AirROI labels, so the model cannot diff them by eye.
+    if c.get("market_amenity_frequency"):
+        gap = amenities.compare(s.get("amenities"), s.get("house_rules"),
+                                c.get("market_amenity_frequency"), c.get("top_comps"),
+                                f"{s.get('public_name') or ''} {s.get('summary') or ''}")
+
+        def fmt(rows):
+            return "; ".join(f"{g['amenity']} {g['pct']}% ({g['top_hits']}/{g['top_n']} top)"
+                             for g in rows) or "none"
+
+        A(f"missing_from_pms (in >={amenities.MISSING_MIN_PCT}% of comps, not in the PMS amenity "
+          f"list or house rules): {fmt(gap['missing'][:15])}")
+        A(f"have_but_title_summary_never_say (in <={amenities.DIFFERENTIATOR_MAX_PCT}% of comps): "
+          f"{fmt(gap['unsurfaced'][:10])}")
+        if gap["subject_list_empty"]:
+            A("⚠️ The PMS amenity list is EMPTY, so every comp amenity reads as missing. "
+              "Do not report amenity gaps from this; say the amenity list could not be read.")
+        A("amenity note: missing_from_pms means unticked OR absent. Check the description "
+          "before calling something missing; if it exists, the fix is ticking the checkbox "
+          "(Airbnb search filters read checkboxes). Literal-text check on title+summary only.")
 
     # ── Photos ────────────────────────────────────────────────────────
     p = _read(d, "photo_scores.json") or {}

@@ -357,3 +357,28 @@ def test_every_prior_run_reaches_the_digest_intact(tmp_path):
     out = bd.build(tmp_path)
     for m in (8, 7, 6):
         assert f'title="Title {m}"' in out, f"prior run {m} missing from digest"
+
+
+def test_amenity_gaps_are_computed_not_left_to_the_model(tmp_path):
+    """olde-town-ambler 2026-09-24: the top-30 frequency line was all 92-100% basics, so
+    workspace (79%) and fire pit (67%) never reached the model. The digest now carries the
+    computed diff, matched across PMS keys and AirROI labels, with house-rule pets."""
+    subject = {"data": {"name": "x", "public_name": "Walk to Olde Town", "summary": "Dogs welcome.",
+                        "amenities": ["bed_linens", "smoke_detector", "jacuzzi"],
+                        "house_rules": {"pets_allowed": True}}}
+    comps = {"comp_count": 3, "fetch": {"calls": 0, "path": "cache"},
+             "top_comps": [{"name": "A", "amenities": ["Fire pit", "Dedicated workspace"]}],
+             "market_amenity_frequency": [
+                 {"amenity": "Bed linens", "pct": 100}, {"amenity": "Smoke alarm", "pct": 100},
+                 {"amenity": "Dedicated workspace", "pct": 79}, {"amenity": "Fire pit", "pct": 67},
+                 {"amenity": "Pets allowed", "pct": 54}, {"amenity": "Hot tub", "pct": 20}],
+             "comp_title_samples": []}
+    (tmp_path / "subject.json").write_text(json.dumps(subject))
+    (tmp_path / "comps.json").write_text(json.dumps(comps))
+    out = bd.build(tmp_path)
+    assert "Dedicated workspace 79% (1/1 top)" in out
+    assert "Fire pit 67% (1/1 top)" in out
+    missing_line = next(line for line in out.splitlines() if line.startswith("missing_from_pms"))
+    assert "Pets allowed" not in missing_line and "Bed linens" not in missing_line
+    assert "Hot tub 20%" in out, "differentiator absent from the title/summary not flagged"
+    assert "market_amenity_freq(top30)" not in out
