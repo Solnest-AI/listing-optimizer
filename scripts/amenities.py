@@ -41,7 +41,20 @@ ALIASES = {
     "trash compacter": "trash compactor",
     "travel crib": "pack n play travel crib",
     "wardrobe or closet": "clothing storage",
+    # Live Airbnb label heads (after the qualifier is stripped by canon()).
+    "free dryer": "dryer",
+    "free washer": "washer",
+    "paid dryer": "dryer",
+    "paid washer": "washer",
+    "private backyard": "backyard",
+    "shared backyard": "backyard",
 }
+
+# Airbnb prefixes brands and specs onto these ("TEKA stainless steel oven", "Samsung
+# refrigerator", "Sonos sound system"). A label ending in one of them is that amenity.
+BRANDED_SUFFIXES = ("oven", "stove", "refrigerator", "sound system", "coffee maker", "hair dryer",
+                    "shampoo", "conditioner", "body soap", "shower gel", "exercise equipment",
+                    "game console", "pool table")
 
 # house_rules flags that Airbnb (and AirROI) list as amenities.
 HOUSE_RULE_AMENITIES = {"pets_allowed": "pets allowed", "smoking_allowed": "smoking allowed"}
@@ -69,8 +82,14 @@ def norm(text) -> str:
 
 
 def canon(text) -> str:
-    n = norm(text)
-    return ALIASES.get(n, n)
+    # Airbnb qualifies labels: "Free dryer – In building", "Indoor fireplace: wood-burning".
+    head = re.split(r"\s+[–—-]\s+|:", str(text or ""), maxsplit=1)[0]
+    n = norm(head)
+    n = ALIASES.get(n, n)
+    for suffix in BRANDED_SUFFIXES:
+        if n != suffix and n.endswith(" " + suffix):
+            return suffix
+    return n
 
 
 def subject_amenity_set(amenities, house_rules) -> set[str]:

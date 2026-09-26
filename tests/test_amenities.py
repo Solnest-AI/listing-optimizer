@@ -79,3 +79,14 @@ def test_empty_subject_list_is_flagged():
     'missing', which is noise, so the result must say the list was empty."""
     r = am.compare([], {}, _freq([("Wifi", 100)]), [], copy_text="")
     assert r["subject_list_empty"] is True
+
+
+def test_airbnb_label_variants_match_the_market_labels():
+    """Live Airbnb (RankBreeze) labels carry qualifiers and brands the AirROI market labels
+    do not: seen 2026-09-26 on two real listings."""
+    freq = _freq([("Dryer", 92), ("Washer", 92), ("Oven", 100), ("Backyard", 96),
+                  ("Indoor fireplace", 29), ("Coffee maker", 90)])
+    live = ["Free dryer – In building", "Free washer – In building", "TEKA stainless steel oven",
+            "Private backyard – Fully fenced", "Indoor fireplace: wood-burning", "Coffee maker: Keurig coffee machine"]
+    r = am.compare(live, {}, freq, [], copy_text="")
+    assert r["missing"] == [], [g["amenity"] for g in r["missing"]]
