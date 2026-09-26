@@ -319,3 +319,17 @@ def test_occupancy_row_is_labelled_as_on_the_books():
         "occupancy": {"source": "Hospitable", "forward_pct": 53.3, "forward_days": 90,
                       "upcoming_reservations": 10, "monthly": {"2026-09": "100%"}}})
     assert "| Booked from today |" in md and "| Occupancy |" not in md
+
+
+@pytest.mark.parametrize("tpl", ["report.md.j2", "report.html.j2"])
+def test_hero_is_named_as_an_airbnb_photo_on_a_live_gallery(tpl):
+    from jinja2 import Environment, FileSystemLoader
+    root = Path(__file__).resolve().parent.parent
+    env = Environment(loader=FileSystemLoader(str(root / ".claude/skills/listing-optimizer/output-templates")),
+                      trim_blocks=True, lstrip_blocks=True, autoescape=tpl.endswith("html.j2"))
+    base = {"listing": {"name": "x"}, "optimized": {"title": "t", "summary": "s", "the_space": "sp"}, "branding": {}}
+    live = env.get_template(tpl).render(data={**base, "photos": {"hero": 45, "recommended_top5_order": [45, 1],
+                                                                  "gallery_source": {"kind": "live_airbnb", "provider": "rankbreeze"}}})
+    pms = env.get_template(tpl).render(data={**base, "photos": {"hero": 3, "recommended_top5_order": [3],
+                                                                 "gallery_source": {"kind": "pms", "provider": "Hospitable"}}})
+    assert "Airbnb photo 45" in live and "photo #3" in pms

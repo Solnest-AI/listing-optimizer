@@ -47,7 +47,7 @@
 {% endif %}
 {% if data.photos.unranked %}**Unranked photos:** {{ data.photos.unranked | join(', ') }}
 {% endif %}
-- **Hero:** {{ ('photo #' ~ data.photos.hero) if data.photos.hero is not none else 'unavailable' }}
+- **Hero:** {{ (('Airbnb photo ' if gs.kind == 'live_airbnb' else 'photo #') ~ data.photos.hero) if data.photos.hero is not none else 'unavailable' }}
 - **Recommended order:** {{ (data.photos.recommended_top5_order or []) | join(' → ') }}
 {% if data.photos.reshoot %}- **Reshoot:** {{ data.photos.reshoot | join(', ') }}{% endif %}
 {% if data.photos.restage %}- **Restage:** {{ data.photos.restage | join(', ') }}{% endif %}
