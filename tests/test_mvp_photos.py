@@ -218,3 +218,11 @@ def test_stale_or_invalid_agent_scores_are_rejected(tmp_path):
         {**row(1, technical=7), "url": "https://images.test/1.jpg"}]}))
     scored, rejected = ap.load_agent_scores(path, gallery)
     assert scored == [] and len(rejected) == 2
+
+
+def test_default_scores_a_real_gallery_not_just_the_first_30():
+    """olde-town-ambler 2026-09-24: 24 of 54 photos were never scored at the old default
+    of 30, so a strong shot at #40 could never be recommended."""
+    import run_pipeline
+    assert ap.DEFAULT_LIMIT >= 54
+    assert run_pipeline.PHOTO_LIMIT_DEFAULT == ap.DEFAULT_LIMIT

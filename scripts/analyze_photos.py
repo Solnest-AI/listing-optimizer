@@ -17,7 +17,7 @@ Output : aggregate JSON per references/photo-rubric.md — per-photo scores + ta
 ZERO-PRICING: photo analysis never references price/value-for-money.
 
 Usage:
-  python scripts/analyze_photos.py --photos images.json --limit 30 \
+  python scripts/analyze_photos.py --photos images.json --limit 60 \
       --out output/2026-06-06/my-listing/photo_scores.json
 """
 from __future__ import annotations
@@ -145,6 +145,9 @@ def load_photos(path: Path) -> list[dict]:
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_INLINE_BYTES = 18 * 1024 * 1024  # room for schema/text under the vendor's 20MB cap
 DEFAULT_BATCH_SIZE = 5
+# Whole gallery for a typical listing (20-60 photos). 30 left 24 of 54 unscored on a real run;
+# each extra 5 photos is one more free-tier Gemini request.
+DEFAULT_LIMIT = 60
 
 
 def _valid_score(data):
@@ -558,7 +561,7 @@ def write_fallback(photos: list[dict], out_dir: Path, reason: str) -> Path:
 def main():
     ap = argparse.ArgumentParser(description="Score listing photos with Gemini (ALE rubric).")
     ap.add_argument("--photos", required=True, help="Hospitable images JSON or list")
-    ap.add_argument("--limit", type=int, default=30, help="score the top-N photos by order")
+    ap.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help="score the top-N photos by order")
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--concurrency", type=int, default=2,
                     help="parallel Gemini batches (default 2)")

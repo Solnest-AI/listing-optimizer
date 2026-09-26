@@ -36,6 +36,7 @@ SKIPPABLE = {"reviews", "calendar", "comps", "photos", "memory", "channels"}
 MANAGED = {"subject.json", "images.json", "reviews.json", "channels.json", "calendar.json",
            "reservations.json", "occupancy.json", "prior_runs.json", "comps.json", "photo_scores.json", "cadence.json"}
 CRITICAL = ("subject", "digest")
+PHOTO_LIMIT_DEFAULT = 60  # keep equal to analyze_photos.DEFAULT_LIMIT (tested)
 
 
 class Step:
@@ -131,7 +132,7 @@ def main():
                     help="Hospitable property UUID. Omit on other PMSs (stage the JSON files yourself).")
     ap.add_argument("--workdir", default=None, help="default output/<date>/<slug>")
     ap.add_argument("--refresh", action="store_true", help="re-pull Hospitable files that already exist")
-    ap.add_argument("--photo-limit", type=int, default=30)
+    ap.add_argument("--photo-limit", type=int, default=PHOTO_LIMIT_DEFAULT)
     ap.add_argument("--calendar-days", type=int, default=90)
     ap.add_argument("--all-reviews", action="store_true",
                     help="pull the FULL review history (default: the 20 newest). Only needed for "

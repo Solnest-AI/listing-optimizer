@@ -56,7 +56,7 @@ cadence, then creates `digest.md` plus `pipeline_status.json`.
 - `--refresh`: re-fetch Hospitable sources. Staged sources are preserved on other PMSs.
 - `--no-cache` or `LO_NO_CACHE=1`: force paid lookups again.
 - `--skip reviews,calendar,channels,comps,photos,memory`: comma-separated optional stages.
-- `--photo-limit N`: default 30, range 1..100.
+- `--photo-limit N`: default 60 (a whole typical gallery), range 1..100.
 - `--review-limit N`: default 20, range 1..50; `--all-reviews` for lifetime analysis.
 - `--calendar-days N`: default 90, range 1..365.
 - `--rankbreeze "Jun:41,Jul:55"`: optional occupancy cross-check.
