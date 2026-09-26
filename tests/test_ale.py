@@ -46,6 +46,12 @@ def test_incomplete_or_duplicate_scorecards_are_rejected(names):
         rr.validate_result(_result(_card(names)))
 
 
+def test_half_point_scores_from_older_runs_are_accepted():
+    card = _card(ale.DIMENSIONS)
+    card[0]["score"] = 3.5
+    rr.validate_result(_result(card))
+
+
 def test_scores_must_be_0_to_5():
     card = _card(ale.DIMENSIONS)
     card[0]["score"] = 7

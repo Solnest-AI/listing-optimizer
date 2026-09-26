@@ -73,6 +73,54 @@ PRICE_NUMBER_RE = re.compile(r"""(?ix)
 """)
 
 
+# Paste copy rules (references/airbnb-field-limits.md): contact details break Airbnb sync
+# and policy; the title guidelines ban emojis, ALL CAPS and repeated special characters.
+CONTACT_RE = re.compile(r"""(?ix)
+    (?P<email>[\w.+-]+@[\w-]+\.[\w.-]+)
+  | (?P<url>https?://\S+ | \bwww\.\S+ | \b[a-z0-9-]+\.(?:com|net|org|ca|co|io|us|info|biz|rentals|house|homes)\b)
+  | (?P<phone>(?:\+?1[\s.-]?)?\(?\b\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}\b)
+""")
+EMOJI_RE = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F]")
+REPEATED_RE = re.compile(r"([!?*~#$%^&+=|•·★_-])\1")
+
+
+def _check_contact(name: str, text: str) -> None:
+    m = CONTACT_RE.search(text)
+    if m:
+        kind = "phone" if m.group("phone") else "email" if m.group("email") else "URL"
+        raise ValueError(f"optimized.{name} contains a {kind} ('{m.group(0)}'); Airbnb rejects "
+                         f"contact details in listing copy")
+
+
+def _check_title(title: str) -> None:
+    letters = [c for c in title if c.isalpha()]
+    if EMOJI_RE.search(title):
+        raise ValueError("optimized.title contains an emoji or symbol; Airbnb titles ban them")
+    # Share of capitals, not per-word: acronyms like UHNBC or YVR are allowed.
+    if len(letters) >= 8 and sum(c.isupper() for c in letters) / len(letters) > 0.6:
+        raise ValueError("optimized.title uses ALL CAPS; Airbnb asks for sentence case")
+    if REPEATED_RE.search(title):
+        raise ValueError("optimized.title repeats a special character; Airbnb titles ban that")
+
+
+def check_caption_orders(data: dict, workdir: Path) -> list:
+    """Mark captions whose photo order is not in this run's gallery as new photos to
+    create (e.g. the map the report asks for). A mistyped order surfaces the same way,
+    labelled in the paste block, instead of silently captioning the wrong photo."""
+    src = workdir / "images.json"
+    if not src.exists() or artifacts.excluded(workdir, "images.json"):
+        return []
+    raw = json.loads(src.read_text(encoding="utf-8"))
+    items = raw.get("data") if isinstance(raw, dict) else raw
+    orders = {p.get("order") for p in items or [] if isinstance(p, dict)}
+    new = []
+    for c in (data.get("optimized") or {}).get("captions") or []:
+        if c.get("order") not in orders:
+            c["new_photo"] = True
+            new.append(c["order"])
+    return sorted(new)
+
+
 def build_paste_block(data: dict) -> str:
     o = data.get("optimized", {})
     lines = [f"=== {data.get('listing', {}).get('name', 'Listing')}: Optimized Content ===",
@@ -88,7 +136,10 @@ def build_paste_block(data: dict) -> str:
         lines.append("--- PHOTO CAPTIONS (recommended order) ---")
         for c in caps:
             order, subj = c.get("order"), c.get("subject", "")
-            tag = f"[#{order} {subj}]" if order is not None else f"[{subj}]"
+            if c.get("new_photo"):
+                tag = f"[NEW PHOTO to create: {subj}]"
+            else:
+                tag = f"[#{order} {subj}]" if order is not None else f"[{subj}]"
             lines.append(f"{tag} {c.get('caption', '').strip()}")
     return "\n".join(lines).rstrip() + "\n"
 
@@ -216,6 +267,11 @@ def validate_result(data: dict) -> None:
                 or len(c["caption"]) > 250):
             raise ValueError("captions need unique photo orders and 1..250 characters")
         orders.add(c["order"])
+    for key in ("title", "summary", "the_space"):
+        _check_contact(key, optimized[key])
+    for c in captions:
+        _check_contact(f"captions[#{c['order']}]", c["caption"])
+    _check_title(optimized["title"])
     optimized["summary_char_count"] = len(optimized["summary"])
     card = data.get("ale_scorecard")
     if card is not None:
@@ -223,8 +279,9 @@ def validate_result(data: dict) -> None:
             raise ValueError("ale_scorecard must be a list of rows")
         for row in card:
             row["dimension"] = ale.canonical_dimension(row.get("dimension"))
-            if type(row.get("score")) is not int or not 0 <= row["score"] <= 5:
-                raise ValueError(f"ale_scorecard {row['dimension']}: score must be an integer 0..5")
+            score = row.get("score")
+            if type(score) not in (int, float) or not 0 <= score <= 5:
+                raise ValueError(f"ale_scorecard {row['dimension']}: score must be a number 0..5")
         if sorted(r["dimension"] for r in card) != sorted(ale.DIMENSIONS):
             raise ValueError("ale_scorecard must cover each of the 7 dimensions exactly once: "
                              + ", ".join(ale.DIMENSIONS))
@@ -267,6 +324,10 @@ def main():
         if data.get("run_date") != args.date or data["listing"].get("slug", args.listing_slug) != args.listing_slug:
             raise ValueError("result listing/date do not match the requested output")
         if args.workdir:
+            new_photos = check_caption_orders(data, Path(args.workdir))
+            if new_photos:
+                print(f"[render_report] captions for photos not in the gallery, labelled NEW PHOTO: "
+                      f"{new_photos} (check the order if that was not intended)")
             merged = merge_machine_blocks(data, Path(args.workdir))
             if merged:
                 print(f"[render_report] merged from disk: {', '.join(merged)}")
