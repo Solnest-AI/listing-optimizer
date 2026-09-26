@@ -300,8 +300,24 @@ def normalize_prose(value, key=""):
     if isinstance(value, list):
         return [normalize_prose(v, key) for v in value]
     if isinstance(value, str) and not key.endswith("url"):
-        return re.sub(r"\s*—\s*", ". ", value)
+        return _replace_em_dashes(value)
     return value
+
+
+def _replace_em_dashes(text: str) -> str:
+    """'Sleeps 6 — hot tub' -> 'Sleeps 6. Hot tub'. The old ". " swap left a lowercase
+    fragment after the period, a doubled period after existing punctuation, and a dangling
+    ". " at the end of a string."""
+    parts = re.split(r"\s*—\s*", text)
+    out = parts[0]
+    for nxt in parts[1:]:
+        out = out.rstrip()
+        if not nxt:                       # dash at the very end
+            out = out if out.endswith((".", "!", "?")) or not out else out + "."
+            continue
+        joiner = " " if out.endswith((".", "!", "?", ":", ";", ",")) or not out else ". "
+        out += joiner + nxt[0].upper() + nxt[1:]
+    return out
 
 
 def main():

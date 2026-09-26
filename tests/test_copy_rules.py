@@ -70,3 +70,15 @@ def test_captions_for_photos_not_in_the_gallery_are_labelled_new(tmp_path):
     assert rr.check_caption_orders(data, tmp_path) == [99]
     paste = rr.build_paste_block(data)
     assert "[NEW PHOTO to create: map]" in paste and "[#1 living room]" in paste
+
+
+@pytest.mark.parametrize("before,after", [
+    ("Sleeps 6 — hot tub on the deck", "Sleeps 6. Hot tub on the deck"),
+    ("Relax—unwind.", "Relax. Unwind."),
+    ("Quiet street. — Walk everywhere", "Quiet street. Walk everywhere"),
+    ("Ends with a dash —", "Ends with a dash."),
+    ("https://a.com/x—y", "https://a.com/x—y"),
+])
+def test_em_dash_rewrite_leaves_real_sentences(before, after):
+    key = "airbnb_url" if before.startswith("http") else "summary"
+    assert rr.normalize_prose({key: before})[key] == after

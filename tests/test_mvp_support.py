@@ -218,7 +218,7 @@ def test_competitor_titles_are_evidence_and_stay_verbatim(tmp_path):
         "--out-base", str(tmp_path / "reports")], check=True, capture_output=True, text=True)
     md = (tmp_path / "reports/cabin/2026-09-20/report.md").read_text()
     assert "Lakeview Cabin — Hot Tub" in md, "competitor title was rewritten"
-    assert "Relax. unwind." in md, "agent copy must still follow the rule"
+    assert "Relax. Unwind." in md, "agent copy must still follow the rule"
 
 
 def test_digest_survives_a_corrupt_status_file(tmp_path):
@@ -256,5 +256,5 @@ def test_machine_notes_from_disk_follow_punctuation_rule(tmp_path):
         "--out-base", str(tmp_path / "reports")], check=True, capture_output=True, text=True)
     for name in ("report.md", "report.html"):
         text = (tmp_path / "reports/cabin/2026-09-20" / name).read_text()
-        assert "—" not in text and "No map photo. create one." in text
+        assert "—" not in text and "No map photo. Create one." in text
         assert "cross-check" not in text, "an unsupplied cross-check must not render"
