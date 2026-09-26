@@ -93,6 +93,15 @@ def _scale_divisor(review: dict) -> float:
     return 2.0 if any(v and v > 5 for v in vals) else 1.0
 
 
+def _says_more(live_text, pms_text, tolerance: int = 2) -> bool:
+    """True when the live Airbnb text says something the PMS text does not. The PMS often
+    carries extra sections (attractions, transit) that Airbnb shows elsewhere, so an exact
+    match reports drift that is not there; new words on Airbnb are the real signal."""
+    pms_words = set(amenities.norm(pms_text).split())
+    new = {w for w in amenities.norm(live_text).split() if len(w) >= 3 and w not in pms_words}
+    return len(new) > tolerance
+
+
 def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
     out: list[str] = []
     A = out.append
@@ -104,12 +113,37 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
     subject = {k: s.get(k) for k in keys}
     # The live Airbnb copy, when RankBreeze/IntelliHost supplied it, is what guests read and
     # what the report must critique. The PMS copy can differ (Boho Bliss 2026-09-26).
-    live = ((_read(d, "live_gallery.json") or {}).get("listing") or {})
+    lg_file = _read(d, "live_gallery.json") or {}
+    live, live_provider = (lg_file.get("listing") or {}), lg_file.get("provider")
+    comps_file = _read(d, "comps.json") or {}
+    if not live and isinstance(comps_file.get("subject_listing"), dict):
+        # AirROI's record of this listing, from the comps call already made.
+        sub = comps_file["subject_listing"]
+        live = {"title": sub.get("title") or "", "summary": "", "description": sub.get("description") or "",
+                "amenities": sub.get("amenities") or [], "rating_overall": sub.get("rating_overall"),
+                "num_reviews": sub.get("num_reviews"), "guest_favorite": sub.get("guest_favorite"),
+                "superhost": sub.get("superhost")}
+        live_provider = "airroi"
+    if live and live_provider != "airroi" and isinstance(comps_file.get("subject_listing"), dict):
+        for k in ("rating_overall", "num_reviews", "guest_favorite", "superhost"):
+            live.setdefault(k, comps_file["subject_listing"].get(k))
     drift = []
+    if live_provider == "airroi" and isinstance(live.get("description"), str) and live["description"].strip():
+        # AirROI's text is the summary followed by the full description.
+        full = amenities.norm(live["description"])
+        if subject.get("summary") and not full.startswith(amenities.norm(subject["summary"])):
+            drift.append("summary")
+        if subject.get("description") and _says_more(
+                live["description"], f"{subject.get('summary') or ''} {subject['description']}"):
+            drift.append("description")
+        subject["description"] = live["description"]
+        live = {**live, "description": ""}  # handled; the generic loop below skips it
     for field, live_key in (("public_name", "title"), ("summary", "summary"), ("description", "description")):
         lv = live.get(live_key)
         if isinstance(lv, str) and lv.strip():
-            if amenities.norm(subject.get(field)) != amenities.norm(lv):  # punctuation-only is not drift
+            changed = (amenities.norm(subject.get(field)) != amenities.norm(lv) if live_key == "title"
+                       else _says_more(lv, subject.get(field)))  # punctuation or extra PMS sections are not drift
+            if changed:
                 drift.append(live_key)
             subject[field] = lv
     # Bound only prose. Never truncate serialized JSON and silently lose facts
@@ -119,7 +153,15 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
             subject[key] = subject[key][:limit] + " [truncated; remaining text available in subject.json]"
     A("# SUBJECT\n" + json.dumps(subject, ensure_ascii=False))
     if live:
-        A("copy_source: LIVE Airbnb listing (title/summary/description above are what guests read now)"
+        facts = []
+        if live.get("rating_overall") and live.get("num_reviews"):
+            facts.append(f"{live['rating_overall']} over {live['num_reviews']} reviews")
+        facts += [label for key, label in (("guest_favorite", "Guest Favorite"), ("superhost", "Superhost"))
+                  if live.get(key) is True]
+        if facts:
+            A("live_airbnb_facts: " + " · ".join(facts))
+        A(f"copy_source: LIVE Airbnb listing via {live_provider} (title/summary/description above are what "
+          f"guests read now)"
           + (f". PMS copy differs from live Airbnb: {', '.join(drift)}. Say so; edits made only in the PMS "
              f"may not be reaching Airbnb." if drift else ". PMS copy matches."))
     status = _status(d)

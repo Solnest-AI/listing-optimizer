@@ -79,6 +79,18 @@ async def get_comparables(*, latitude=None, longitude=None, address=None,
     return listings
 
 
+async def get_listing(listing_id, currency: str = "usd") -> dict:
+    """ONE paid call for a single Airbnb listing (the subject, when it is not in its own
+    comps pool). The caller strips pricing."""
+    if not str(listing_id or "").isdigit():
+        raise AirROIError("invalid Airbnb listing id")
+    async with httpx.AsyncClient() as client:
+        data = await _get("/listings", {"id": str(listing_id), "currency": currency}, client)
+    if not isinstance(data.get("listing_info"), dict):
+        raise AirROIError("AirROI listing response has no listing_info; upstream schema changed")
+    return data
+
+
 async def fetch_comps(*, latitude=None, longitude=None, address=None,
                       bedrooms: int, baths: float, guests: int,
                       currency: str = "usd", radius=None) -> tuple[list[dict], dict]:

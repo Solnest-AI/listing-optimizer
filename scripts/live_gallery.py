@@ -158,6 +158,36 @@ def from_intellihost(session, room_id: str) -> dict:
             "complete": len(photos) >= reported, "photos": photos, "listing": listing}
 
 
+def from_airroi_subject(subject: dict, pms_count: int | None = None) -> dict | None:
+    """The live listing as AirROI saw it, from the subject's own row in the comps pool (no
+    extra call). AirROI can hold just Airbnb's 5-photo top grid (measured: photos_count 5 on
+    a 47-photo listing, with nothing saying more exist), so a short list against a larger
+    PMS gallery is marked incomplete instead of being ranked as the whole gallery."""
+    if not isinstance(subject, dict):
+        return None
+    urls = [_clean_url(u) for u in subject.get("photo_urls") or [] if AIRBNB_IMG.match(str(u or ""))]
+    reported = subject.get("photos_count") if isinstance(subject.get("photos_count"), int) else len(urls)
+    reason = ""
+    if len(urls) < reported:
+        reason = f"AirROI returned {len(urls)} of the {reported} photos it counted"
+    elif len(urls) <= 5 and (pms_count or 0) > len(urls):
+        reason = (f"AirROI saw only Airbnb's top grid ({len(urls)} photos) while the PMS holds {pms_count}; "
+                  f"the rest of the live gallery was not visible to it")
+    # AirROI's "description" is the Airbnb summary followed by the full description, so it
+    # is stored as the full text; the digest checks the summary against its opening.
+    listing = {"title": str(subject.get("title") or ""), "summary": "",
+               "description": _text(subject.get("description")),
+               "amenities": [str(a) for a in subject.get("amenities") or []],
+               "rating_overall": subject.get("rating_overall"), "num_reviews": subject.get("num_reviews"),
+               "guest_favorite": subject.get("guest_favorite"), "superhost": subject.get("superhost")}
+    return {"provider": "airroi", "room_id": str(subject.get("listing_id") or ""),
+            "fetched_at": subject.get("fetched_at") or "AirROI comps pool (see comps.json fetch age)",
+            "returned": len(urls), "reported": max(reported, pms_count or 0) if reason else reported,
+            "complete": not reason, "incomplete_reason": reason,
+            "photos": [{"position": i + 1, "url": u, "caption": ""} for i, u in enumerate(urls)],
+            "listing": listing}
+
+
 def validate(g: dict) -> dict:
     """Shape check for a fetched OR agent-staged gallery. Raises ValueError."""
     photos = g.get("photos") if isinstance(g, dict) else None
@@ -169,8 +199,8 @@ def validate(g: dict) -> dict:
                 or p["position"] in seen or not AIRBNB_IMG.match(str(p.get("url") or ""))):
             raise ValueError("live gallery photos need unique positions >= 1 and Airbnb image URLs")
         seen.add(p["position"])
-    if g.get("provider") not in ("rankbreeze", "intellihost"):
-        raise ValueError("live gallery provider must be rankbreeze or intellihost")
+    if g.get("provider") not in ("rankbreeze", "intellihost", "airroi"):
+        raise ValueError("live gallery provider must be rankbreeze, intellihost or airroi")
     listing = g.get("listing")
     if listing is not None and (not isinstance(listing, dict)
                                 or not all(isinstance(listing.get(k, ""), str) for k in ("title", "summary", "description"))

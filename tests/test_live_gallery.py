@@ -277,10 +277,11 @@ def test_digest_uses_live_copy_and_live_amenities_and_flags_pms_drift(tmp_path):
         "market_amenity_frequency": [{"amenity": "Self check-in", "pct": 83}, {"amenity": "Wifi", "pct": 100}],
         "comp_title_samples": []}))
     (tmp_path / "live_gallery.json").write_text(json.dumps({**GOOD, "listing": {
-        "title": "Walk to UHNBC", "summary": "Same summary.", "description": "Keurig only",
+        "title": "Walk to UHNBC", "summary": "Same summary.",
+        "description": "Keurig only. Explore Cottonwood Island Park and the farmers market",
         "amenities": ["Self check-in", "Wifi"]}}))
     out = bd.build(tmp_path)
-    assert "Keurig only" in out and "Keurig + French press" not in out, "digest critiqued the PMS copy"
+    assert "Cottonwood Island Park" in out and "Keurig + French press" not in out, "digest critiqued the PMS copy"
     assert "PMS copy differs from live Airbnb: description" in out
     miss = next(line for line in out.splitlines() if line.startswith("missing_on_live_airbnb"))
     assert "Self check-in" not in miss, "told the host to tick a box that is already ticked on Airbnb"
@@ -333,3 +334,119 @@ def test_hero_is_named_as_an_airbnb_photo_on_a_live_gallery(tpl):
     pms = env.get_template(tpl).render(data={**base, "photos": {"hero": 3, "recommended_top5_order": [3],
                                                                  "gallery_source": {"kind": "pms", "provider": "Hospitable"}}})
     assert "Airbnb photo 45" in live and "photo #3" in pms
+
+
+# ── AirROI: the live listing for every member, from the comps call already paid for ──
+def _airroi_subject(n, count=None):
+    return {"listing_id": 111, "title": "Walk to Olde Town", "description": "Summary text",
+            "cover_photo_url": MUS + "p0.jpeg", "photos_count": count if count is not None else n,
+            "photo_urls": [f"{MUS}p{i}.jpeg" for i in range(n)], "amenities": ["Wifi"],
+            "rating_overall": 4.98, "num_reviews": 155, "guest_favorite": True, "superhost": True}
+
+
+def test_airroi_full_gallery_is_live_and_complete():
+    g = lg.from_airroi_subject(_airroi_subject(32), pms_count=54)
+    assert g["provider"] == "airroi" and g["complete"] and len(g["photos"]) == 32
+    assert g["photos"][0]["position"] == 1
+    # AirROI's "description" is the summary followed by the full description, not the summary.
+    assert g["listing"]["description"] == "Summary text" and g["listing"]["summary"] == ""
+
+
+def test_airroi_top_grid_only_is_never_treated_as_the_whole_gallery():
+    """boho-bliss 2026-09-26: AirROI reported photos_count 5 for a 47-photo listing; it had
+    captured only Airbnb's top grid and did not say anything was missing."""
+    g = lg.from_airroi_subject(_airroi_subject(5), pms_count=47)
+    assert g["complete"] is False and "top grid" in g["incomplete_reason"]
+
+
+def _stage_pms(tmp_path, n):
+    (tmp_path / "images.json").write_text(json.dumps({"data": [{"url": f"https://x/{i}.jpg", "order": i}
+                                                              for i in range(n)],
+                                                     "_source": {"kind": "pms", "provider": "Hospitable"}}))
+
+
+def test_pipeline_uses_a_complete_airroi_gallery(tmp_path):
+    _stage_pms(tmp_path, 54)
+    (tmp_path / "comps.json").write_text(json.dumps({"subject_listing": _airroi_subject(32)}))
+    status, detail = rp.airroi_gallery_step(tmp_path)
+    im = json.loads((tmp_path / "images.json").read_text())
+    assert status == "ok" and im["_source"]["provider"] == "airroi" and len(im["data"]) == 32
+
+
+def test_pipeline_keeps_the_pms_gallery_when_airroi_saw_only_the_top_grid(tmp_path):
+    _stage_pms(tmp_path, 47)
+    (tmp_path / "comps.json").write_text(json.dumps({"subject_listing": _airroi_subject(5)}))
+    status, detail = rp.airroi_gallery_step(tmp_path)
+    im = json.loads((tmp_path / "images.json").read_text())
+    assert status == "skipped" and "top 5" in detail and im["_source"]["kind"] == "pms"
+
+
+def test_digest_falls_back_to_the_airroi_listing_for_copy_and_amenities(tmp_path):
+    import build_digest as bd
+    (tmp_path / "subject.json").write_text(json.dumps({"data": {
+        "name": "OTA", "public_name": "Walk to Olde Town", "summary": "Old PMS summary", "amenities": [],
+        "house_rules": {}}}))
+    (tmp_path / "comps.json").write_text(json.dumps({"comp_count": 1, "top_comps": [],
+        "market_amenity_frequency": [{"amenity": "Wifi", "pct": 100}, {"amenity": "Backyard", "pct": 96}],
+        "comp_title_samples": [], "subject_listing": _airroi_subject(32)}))
+    out = bd.build(tmp_path)
+    assert "Summary text" in out and "via airroi" in out.lower()
+    miss = next(x for x in out.splitlines() if x.startswith("missing_on_live_airbnb"))
+    assert "Backyard" in miss and "Wifi" not in miss
+    assert "4.98 over 155 reviews" in out and "Guest Favorite" in out
+
+
+
+def test_airroi_full_text_is_not_mistaken_for_a_changed_summary(tmp_path):
+    """2026-09-26: AirROI's description (summary + full description, 4,922 chars) was mapped
+    to the summary, so both real listings were wrongly flagged 'PMS copy differs: summary'."""
+    import build_digest as bd
+    summ = "Bringing the crew to Denver this summer? Sleeps 8."
+    (tmp_path / "subject.json").write_text(json.dumps({"data": {
+        "name": "OTA", "public_name": "Walk to Olde Town", "summary": summ,
+        "description": "WHY GUESTS BOOK IT. Walk to Olde Town.", "amenities": [], "house_rules": {}}}))
+    sub = {**_airroi_subject(32), "description": summ + " WHY GUESTS BOOK IT. Walk to Olde Town. More text."}
+    (tmp_path / "comps.json").write_text(json.dumps({"comp_count": 0, "top_comps": [],
+        "market_amenity_frequency": [], "comp_title_samples": [], "subject_listing": sub}))
+    out = bd.build(tmp_path)
+    assert "PMS copy matches" in out, [x for x in out.splitlines() if x.startswith("copy_source")]
+    sub["description"] = "A totally different summary. " + sub["description"]
+    (tmp_path / "comps.json").write_text(json.dumps({"comp_count": 0, "top_comps": [],
+        "market_amenity_frequency": [], "comp_title_samples": [], "subject_listing": sub}))
+    assert "PMS copy differs from live Airbnb: summary" in bd.build(tmp_path)
+
+
+def test_airroi_gallery_line_states_the_data_age(tmp_path):
+    _stage_pms(tmp_path, 54)
+    (tmp_path / "comps.json").write_text(json.dumps({"subject_listing": _airroi_subject(32),
+                                                      "fetch": {"calls": 0, "path": "cache", "cache_age_days": 3.2}}))
+    rp.airroi_gallery_step(tmp_path)
+    g = json.loads((tmp_path / "live_gallery.json").read_text())
+    assert g["fetched_at"] == "AirROI data cached 3.2 days ago"
+
+
+def test_drift_means_airbnb_says_something_the_pms_does_not(tmp_path):
+    """Olde Town 2026-09-26: Airbnb's The Space sat entirely inside the PMS description (the PMS
+    just carries extra sections), yet an exact-match check flagged drift. Boho's Airbnb text
+    had content the PMS lacks (Cottonwood Island Park, farmers' market): real drift."""
+    import build_digest as bd
+    pms = "WHY GUESTS BOOK IT. Walk to Olde Town. LOCAL ATTRACTIONS: Red Rocks 15 miles. Transit notes here."
+    (tmp_path / "subject.json").write_text(json.dumps({"data": {"name": "x", "public_name": "T", "summary": "S",
+                                                                "description": pms}}))
+    def with_live(desc):
+        (tmp_path / "live_gallery.json").write_text(json.dumps({**GOOD, "listing": {
+            "title": "T", "summary": "S", "description": desc, "amenities": []}}))
+        return next(x for x in bd.build(tmp_path).splitlines() if x.startswith("copy_source"))
+    assert "PMS copy matches" in with_live("WHY GUESTS BOOK IT. Walk to Olde Town.")
+    assert "differs from live Airbnb: description" in with_live(
+        "WHY GUESTS BOOK IT. Walk to Olde Town, Cottonwood Island Park and the farmers market.")
+
+
+def test_a_complete_airroi_gallery_replaces_a_partial_intellihost_one(tmp_path):
+    _stage_pms(tmp_path, 54)
+    partial = {**GOOD, "provider": "intellihost", "complete": False, "returned": 2, "reported": 42}
+    (tmp_path / "live_gallery.json").write_text(json.dumps(partial))
+    assert rp.live_gallery_incomplete(tmp_path) is True
+    (tmp_path / "comps.json").write_text(json.dumps({"subject_listing": _airroi_subject(42)}))
+    status, _ = rp.airroi_gallery_step(tmp_path)
+    assert status == "ok" and json.loads((tmp_path / "live_gallery.json").read_text())["provider"] == "airroi"

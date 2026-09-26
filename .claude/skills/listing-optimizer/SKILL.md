@@ -87,6 +87,11 @@ live gallery when it can, in this order:
 2. IntelliHost (`INTELLIHOST_MCP_TOKEN`, or its connection in Claude Code): live order, no
    captions, Premium-gated per property. Its stored gallery can drop the tail (measured: first
    29 of 42), so a short list is marked incomplete, never treated as the whole gallery.
+   AirROI (every member, no setup): the comps call already returns this listing's own Airbnb
+   record (live order, title, full text, amenities, rating, Guest Favorite, Superhost) at no
+   extra call. It is the default live source, and it replaces an incomplete IntelliHost list.
+   AirROI can hold only Airbnb's 5-photo top grid; then the PMS gallery is ranked for coverage
+   and AirROI still supplies the live copy and amenities.
 3. Connected only as a claude.ai connector (not in Claude Code's config): before running the
    pipeline, stage `output/<DATE>/<SLUG>/live_gallery.json` yourself. RankBreeze:
    `get_user_listings` (follow `nextCursor`) to find the row whose `room_id` is the Airbnb id,

@@ -111,6 +111,41 @@ def live_gallery_step(wd: Path, room_id, runner=None) -> tuple[str, str]:
     return "ok", detail
 
 
+def live_gallery_incomplete(wd: Path) -> bool:
+    try:
+        return json.loads((wd / "live_gallery.json").read_text(encoding="utf-8")).get("complete") is False
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def airroi_gallery_step(wd: Path) -> tuple[str, str]:
+    """After comps: use AirROI's record of the listing (already in comps.json, no extra call)
+    as the live gallery when nothing better supplied one. A top-grid-only list is not used as
+    the gallery; the PMS copy keeps full coverage and AirROI still supplies copy/amenities."""
+    try:
+        comps = json.loads((wd / "comps.json").read_text(encoding="utf-8"))
+        pms = json.loads((wd / "images.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "skipped", "no comps.json or images.json to compare"
+    items = pms.get("data") if isinstance(pms, dict) else pms
+    gallery = live_gallery.from_airroi_subject(comps.get("subject_listing"), len(items or []))
+    if gallery is None or not gallery["photos"]:
+        return "skipped", "AirROI has no record of this listing's photos; photo plan uses the PMS gallery"
+    if not gallery["complete"]:
+        return "skipped", (f"{gallery['incomplete_reason']} (top {gallery['returned']} only); photo plan "
+                           f"uses the PMS gallery, AirROI still supplies the live copy and amenities")
+    fetch = comps.get("fetch") or {}
+    gallery["fetched_at"] = (f"AirROI data cached {fetch.get('cache_age_days')} days ago"
+                             if fetch.get("path") == "cache" else "AirROI pull on the run date")
+    try:
+        live_gallery.validate(gallery)
+    except ValueError as e:
+        return "skipped", f"AirROI gallery invalid ({str(e)[:80]}); photo plan uses the PMS gallery"
+    artifacts.write_json(wd / "live_gallery.json", gallery)
+    artifacts.write_json(wd / "images.json", live_gallery.to_images(gallery))
+    return "ok", f"AirROI: {gallery['returned']} live Airbnb photos from the comps pool (no extra call)"
+
+
 def _tag_pms_images(path: Path, provider: str) -> None:
     """Label a PMS-sourced images.json so the digest and report can say which gallery the
     photo plan was built on."""
@@ -408,6 +443,20 @@ def main():
             st.done(msg)
         else:
             st.fail(msg)
+
+    # ── Live gallery from AirROI when neither RankBreeze nor IntelliHost supplied one ──
+    live_steps = [x for x in steps if x.name == "live gallery"]
+    if (live_steps and (live_steps[0].status != "ok" or live_gallery_incomplete(wd))
+            and "comps.json" in usable and "photos" not in skip):
+        status, detail = airroi_gallery_step(wd)
+        if status == "ok":
+            live_steps[0].done(detail)
+            usable.update({"images.json", "live_gallery.json"})
+            for x in steps:
+                if x.name == "images" and x.status == "ok":
+                    x.done("PMS images replaced by the live AirROI gallery")
+        elif live_steps[0].status != "ok":
+            live_steps[0].skip(f"{live_steps[0].detail}; {detail}")
 
     # ── Photo scoring (Gemini; cached per photo URL) ──
     st = Step("photos (Gemini)")

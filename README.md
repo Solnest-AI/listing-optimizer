@@ -92,6 +92,12 @@ not objective measurements. `analyze_photos.py --batch-size 1 --no-cache` enable
 
 ## Which photos get ranked: live Airbnb gallery vs your PMS
 
+AirROI, which every install already uses for comps, returns the listing being optimized in the
+same call: its live Airbnb photo order, title, text, amenities, rating and badges, at no extra
+cost. That is the default live source. When AirROI only holds Airbnb's 5-photo top grid, the PMS
+gallery is ranked instead (so buried photos are still found) and AirROI still supplies the copy
+and amenities. RankBreeze or IntelliHost, when connected, add captions or fill gaps.
+
 Your PMS copy of the gallery can differ from what guests see on Airbnb (one real listing:
 54 photos with a collage cover in the PMS, 32 with a different cover on Airbnb). Add
 a RankBreeze or IntelliHost connection in Claude Code (found automatically), or set

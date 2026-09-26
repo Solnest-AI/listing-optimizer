@@ -59,9 +59,17 @@ def _clean_comp(raw: dict) -> dict:
     r = raw.get("ratings") or {}
     pm = raw.get("performance_metrics") or {}
     lid = li.get("listing_id")
+    # Kept for the listing being optimized, which AirROI returns inside its own comps pool:
+    # the live Airbnb title, summary, cover and photo order. Never prices or stay rules.
     return {
         "listing_id": lid,
         "name": li.get("listing_name"),
+        "description": li.get("description"),
+        "cover_photo_url": li.get("cover_photo_url"),
+        "photos_count": li.get("photos_count"),
+        "photo_urls": [u for u in li.get("photo_urls") or [] if isinstance(u, str)],
+        "guest_favorite": li.get("guest_favorite"),
+        "superhost": (raw.get("host_info") or {}).get("superhost"),
         "room_type": li.get("room_type"),
         "airbnb_url": f"https://www.airbnb.com/rooms/{lid}" if lid else None,
         "bedrooms": pd.get("bedrooms"),
@@ -72,6 +80,19 @@ def _clean_comp(raw: dict) -> dict:
         "ratings": {k: r.get(k) for k in _RATING_KEEP if r.get(k) is not None},
         "performance": _clean_perf(pm),  # demand/occupancy only — no $
     }
+
+
+def _subject_listing(c: dict | None) -> dict | None:
+    """The listing being optimized, as AirROI last saw it on Airbnb. Price-free by construction
+    (built from the cleaned record)."""
+    if not c:
+        return None
+    r = c.get("ratings") or {}
+    return {"listing_id": c.get("listing_id"), "title": c.get("name"), "description": c.get("description"),
+            "cover_photo_url": c.get("cover_photo_url"), "photos_count": c.get("photos_count"),
+            "photo_urls": c.get("photo_urls") or [], "amenities": c.get("amenities") or [],
+            "rating_overall": r.get("rating_overall"), "num_reviews": r.get("num_reviews"),
+            "guest_favorite": c.get("guest_favorite"), "superhost": c.get("superhost")}
 
 
 def _demand_key(comp: dict) -> tuple:
@@ -167,6 +188,19 @@ async def _run(args) -> dict:
     excluded_id = str(getattr(args, "exclude_listing_id", None) or "")
     comps = sorted((c for lid, c in cleaned.items() if lid != excluded_id), key=_demand_key, reverse=True)
 
+    # The subject's own AirROI record: free when it is in its comps pool (the usual case),
+    # one listing call when it is not.
+    subject = cleaned.get(excluded_id) if excluded_id else None
+    if excluded_id and (subject is None or "photo_urls" not in subject):
+        try:
+            subject = _clean_comp(await airroi_client.get_listing(excluded_id))
+            meta = {**meta, "calls": meta.get("calls", 0) + 1, "subject_path": "listing endpoint"}
+        except airroi_client.AirROIError as e:
+            print(f"[pull_comps] subject listing unavailable from AirROI ({e})", file=sys.stderr)
+            subject = None
+    elif subject is not None:
+        meta = {**meta, "subject_path": "comps pool (no extra call)"}
+
     top = comps[: args.top]
     return {
         "subject_query": {
@@ -180,6 +214,7 @@ async def _run(args) -> dict:
         "top_comps": top,
         "market_amenity_frequency": _amenity_frequency(comps),
         "comp_title_samples": [c["name"] for c in top if c.get("name")],
+        "subject_listing": _subject_listing(subject),
         "_guardrail_note": "Monetary and stay-length fields intentionally omitted per the zero-pricing rule.",
     }
 
