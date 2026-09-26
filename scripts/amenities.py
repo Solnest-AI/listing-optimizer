@@ -86,11 +86,20 @@ def norm(text) -> str:
     return " ".join(s.split())
 
 
+# Airbnb qualifies some amenities as private or shared ("Shared hot tub", "Private pool").
+# For gap matching they are the amenity; "Private entrance" etc. stay distinct names.
+QUALIFIABLE = {"hot tub", "pool", "sauna", "gym", "patio or balcony", "backyard", "bbq grill",
+               "outdoor kitchen", "fire pit", "indoor fireplace"}
+
+
 def canon(text) -> str:
     # Airbnb qualifies labels: "Free dryer – In building", "Indoor fireplace: wood-burning".
     head = re.split(r"\s+[–—-]\s+|:", str(text or ""), maxsplit=1)[0]
     n = norm(head)
     n = ALIASES.get(n, n)
+    for prefix in ("private ", "shared "):
+        if n.startswith(prefix) and n[len(prefix):] in QUALIFIABLE:
+            n = n[len(prefix):]
     for suffix in BRANDED_SUFFIXES:
         if n != suffix and n.endswith(" " + suffix):
             return suffix

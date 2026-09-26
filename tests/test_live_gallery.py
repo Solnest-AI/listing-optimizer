@@ -450,3 +450,27 @@ def test_a_complete_airroi_gallery_replaces_a_partial_intellihost_one(tmp_path):
     (tmp_path / "comps.json").write_text(json.dumps({"subject_listing": _airroi_subject(42)}))
     status, _ = rp.airroi_gallery_step(tmp_path)
     assert status == "ok" and json.loads((tmp_path / "live_gallery.json").read_text())["provider"] == "airroi"
+
+
+def test_rankbreeze_keeps_guest_access_and_live_review_facts():
+    """sunburst-chalet 2026-09-26: Airbnb's Guest access section disclosed a tenant suite that
+    the headline copy contradicted, and AirROI's review count (13) was stale vs live (16)."""
+    s = _rb([{"position": 1, "url": MUS + "a.png"}])
+    s.responses["get_listing_content"].update({"guest_access": "Main house only.<br />Tenant suite below.",
+                                               "rating": 5, "reviews_count": 16})
+    g = lg.from_rankbreeze(s, "111")
+    assert g["listing"]["guest_access"] == "Main house only.\nTenant suite below."
+    assert (g["listing"]["rating_overall"], g["listing"]["num_reviews"]) == (5, 16)
+
+
+def test_digest_shows_guest_access_and_prefers_live_review_facts(tmp_path):
+    import build_digest as bd
+    (tmp_path / "subject.json").write_text(json.dumps({"data": {"name": "x", "public_name": "T", "summary": "S"}}))
+    (tmp_path / "comps.json").write_text(json.dumps({"comp_count": 0, "top_comps": [], "market_amenity_frequency": [],
+        "comp_title_samples": [], "subject_listing": {**_airroi_subject(5), "rating_overall": 5.0, "num_reviews": 13}}))
+    (tmp_path / "live_gallery.json").write_text(json.dumps({**GOOD, "listing": {
+        "title": "T", "summary": "S", "description": "", "amenities": [], "rating_overall": 5, "num_reviews": 16,
+        "guest_access": "A private suite on the lower level is occupied by a long-term tenant."}}))
+    out = bd.build(tmp_path)
+    assert "5 over 16 reviews" in out and "over 13 reviews" not in out
+    assert "guest_access (live Airbnb): A private suite on the lower level" in out

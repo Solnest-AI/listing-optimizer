@@ -126,7 +126,8 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
         live_provider = "airroi"
     if live and live_provider != "airroi" and isinstance(comps_file.get("subject_listing"), dict):
         for k in ("rating_overall", "num_reviews", "guest_favorite", "superhost"):
-            live.setdefault(k, comps_file["subject_listing"].get(k))
+            if live.get(k) is None:  # the live provider wins; AirROI only fills gaps
+                live[k] = comps_file["subject_listing"].get(k)
     drift = []
     if live_provider == "airroi" and isinstance(live.get("description"), str) and live["description"].strip():
         # AirROI's text is the summary followed by the full description.
@@ -160,6 +161,9 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
                   if live.get(key) is True]
         if facts:
             A("live_airbnb_facts: " + " · ".join(facts))
+        if isinstance(live.get("guest_access"), str) and live["guest_access"].strip():
+            A("guest_access (live Airbnb): " + " ".join(live["guest_access"].split())[:600]
+              + "  (check the headline copy does not contradict this)")
         A(f"copy_source: LIVE Airbnb listing via {live_provider} (title/summary/description above are what "
           f"guests read now)"
           + (f". PMS copy differs from live Airbnb: {', '.join(drift)}. Say so; edits made only in the PMS "

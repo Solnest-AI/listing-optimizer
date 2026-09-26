@@ -99,3 +99,12 @@ def test_safety_and_disclosure_items_are_not_suggested_for_the_title():
     r = am.compare(["Exterior security cameras on property", "First aid kit", "Smoke alarm", "Fire pit"],
                    {}, freq, [], copy_text="")
     assert [x["amenity"] for x in r["unsurfaced"]] == ["Fire pit"]
+
+
+def test_shared_and_private_variants_count_as_the_amenity():
+    """sunburst-chalet 2026-09-26: Airbnb lists 'Shared hot tub'; the digest called the hot tub
+    missing (96% of comps) on a listing whose cover photo is the hot tub."""
+    freq = _freq([("Hot tub", 96), ("Pool", 40), ("Private entrance", 70)])
+    r = am.compare(["Shared hot tub", "Private pool", "Private entrance"], {}, freq, [], copy_text="")
+    assert r["missing"] == [], [g["amenity"] for g in r["missing"]]
+    assert am.canon("Private entrance") == "private entrance", "a real amenity name must not be stripped"

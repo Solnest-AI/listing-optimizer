@@ -127,7 +127,10 @@ def from_rankbreeze(session, room_id: str) -> dict:
                "caption": str(i.get("caption") or "")} for i in images if i.get("position")]
     listing = {"title": str(content.get("title") or ""), "summary": _text(content.get("short_description")),
                "description": _text(content.get("long_description")),
-               "amenities": [str(a) for a in content.get("amenities") or [] if a]}
+               "guest_access": _text(content.get("guest_access")),
+               "amenities": [str(a) for a in content.get("amenities") or [] if a],
+               # Live on Airbnb now; AirROI's copy of these can lag (measured 13 vs 16 reviews).
+               "rating_overall": content.get("rating"), "num_reviews": content.get("reviews_count")}
     return {"provider": "rankbreeze", "room_id": str(room_id),
             "fetched_at": content.get("fetched_at") or _now(),
             "returned": len(photos), "reported": len(photos), "complete": True, "photos": photos,
