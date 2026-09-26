@@ -426,3 +426,22 @@ def test_nothing_is_sliced_mid_record(tmp_path):
     assert "2027-12" in out, "later months were cut off"
     assert "Comp 9 " in out, "later comp titles were cut off"
     assert out.count("report_block") == 0, "occupancy printed its duplicate report block"
+
+
+def test_unanswered_reviews_separate_the_ones_that_can_still_be_answered(tmp_path):
+    """boho-bliss 2026-09-26: 3 reviews had no response, but the Booking.com and direct ones
+    had can_respond=false. Telling a host to reply to 3 sends them after 2 impossible replies."""
+    rv = {"data": [
+        {"reviewed_at": "2026-09-23", "platform": "airbnb", "responded_at": None, "can_respond": True,
+         "public": {"rating": 5, "review": "a"}},
+        {"reviewed_at": "2026-07-10", "platform": "booking", "responded_at": None, "can_respond": False,
+         "public": {"rating": 4.5, "review": ""}},
+        {"reviewed_at": "2026-06-22", "platform": "direct", "responded_at": None, "can_respond": False,
+         "public": {"rating": 5, "review": "b"}},
+        {"reviewed_at": "2026-06-01", "platform": "airbnb", "responded_at": "2026-06-02", "can_respond": False,
+         "public": {"rating": 5, "review": "c"}}]}
+    (tmp_path / "subject.json").write_text(json.dumps({"data": {"name": "x"}}))
+    (tmp_path / "reviews.json").write_text(json.dumps(rv))
+    out = bd.build(tmp_path)
+    line = next(x for x in out.splitlines() if x.startswith("unanswered_reviews"))
+    assert ": 3" in line and "1 can still be answered" in line, line

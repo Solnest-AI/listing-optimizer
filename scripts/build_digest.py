@@ -239,7 +239,7 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
       f"{denom if denom else 0} lifetime)")
     cat: dict[str, list] = {}
     platforms: dict[str, int] = {}
-    unanswered = 0
+    unanswered = answerable = 0
     for r in rv:
         platforms[str(r.get("platform") or "?")] = platforms.get(str(r.get("platform") or "?"), 0) + 1
         div = _scale_divisor(r)
@@ -250,6 +250,8 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
             cat.setdefault(dr.get("type"), []).append(v / div)
         if not r.get("responded_at"):
             unanswered += 1
+            # Booking.com / direct reviews often cannot take a host response at all.
+            answerable += r.get("can_respond") is not False
     shown = sorted(rv, key=lambda x: str(x.get("reviewed_at")), reverse=True)[:review_cap]
     for r in shown:
         pub = _lit(r.get("public"))
@@ -288,7 +290,9 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
           f"{list(platforms)} uses a rating scale this code cannot derive. DO NOT cite any "
           f"category average in the report or the ALE scorecard until that is fixed — quote "
           f"the review text instead. (Verified scales: airbnb 1-5, booking 1-10, direct 1-5.)")
-    A(f"unanswered_reviews({scope}): {unanswered}")
+    A(f"unanswered_reviews({scope}): {unanswered}"
+      + (f" ({answerable} can still be answered; the rest no longer accept a host response)"
+         if answerable != unanswered else ""))
     if not complete:
         A(f"NOTE: aggregates above cover the {len(rv)} most recent reviews, NOT all {denom}. "
           f"Report them as recent-window figures (e.g. \"{unanswered} of the last {len(rv)} "
