@@ -16,7 +16,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["airroi_client", "amenities", "analyze_photos", "artifacts", "build_digest", "cache",
+known-first-party = ["airroi_client", "ale", "amenities", "analyze_photos", "artifacts", "build_digest", "cache",
                      "cadence", "hospitable_api", "memory", "occupancy", "photo_dupes", "pull_comps",
                      "render_report", "run_pipeline"]
 

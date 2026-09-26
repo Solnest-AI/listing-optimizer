@@ -27,6 +27,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
+import ale
 import artifacts
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -216,6 +217,20 @@ def validate_result(data: dict) -> None:
             raise ValueError("captions need unique photo orders and 1..250 characters")
         orders.add(c["order"])
     optimized["summary_char_count"] = len(optimized["summary"])
+    card = data.get("ale_scorecard")
+    if card is not None:
+        if not isinstance(card, list) or not all(isinstance(r, dict) for r in card):
+            raise ValueError("ale_scorecard must be a list of rows")
+        for row in card:
+            row["dimension"] = ale.canonical_dimension(row.get("dimension"))
+            if type(row.get("score")) is not int or not 0 <= row["score"] <= 5:
+                raise ValueError(f"ale_scorecard {row['dimension']}: score must be an integer 0..5")
+        if sorted(r["dimension"] for r in card) != sorted(ale.DIMENSIONS):
+            raise ValueError("ale_scorecard must cover each of the 7 dimensions exactly once: "
+                             + ", ".join(ale.DIMENSIONS))
+        card.sort(key=lambda r: ale.DIMENSIONS.index(r["dimension"]))
+        # Derived, never retyped: memory.py stores the same mean for the trend line.
+        data["ale_total"] = round(sum(r["score"] for r in card) / len(card), 2)
 
 
 def normalize_prose(value, key=""):

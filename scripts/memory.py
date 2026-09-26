@@ -24,6 +24,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from ale import canonical_dimension
 from artifacts import file_lock
 from render_report import PRICE_NUMBER_RE, merge_machine_blocks
 
@@ -60,7 +61,7 @@ def summarize(result: dict, *, result_path: str | None = None, season: str | Non
     occ = result.get("occupancy") or {}
     funnel = result.get("funnel") or {}
 
-    ale_scores = [{"dimension": d.get("dimension", ""), "score": d.get("score")}
+    ale_scores = [{"dimension": canonical_dimension(d.get("dimension", "")), "score": d.get("score")}
                   for d in (result.get("ale_scorecard") or []) if isinstance(d, dict)]
     numeric = [d["score"] for d in ale_scores if isinstance(d.get("score"), (int, float))]
 

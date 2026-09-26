@@ -17,6 +17,7 @@ import json
 import sys
 from pathlib import Path
 
+import ale
 import amenities
 import artifacts
 
@@ -271,7 +272,8 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
         for r in prior[:3]:
             if not isinstance(r, dict):
                 continue
-            scores = ", ".join(f"{x.get('dimension')}={x.get('score')}" for x in r.get("ale_scores") or [])
+            scores = ", ".join(f"{ale.canonical_dimension(x.get('dimension'))}={x.get('score')}"
+                               for x in r.get("ale_scores") or [])
             gaps = " | ".join(str(g)[:140] for g in (r.get("amenity_gaps") or [])[:5])
             A(f"- {r.get('run_date')} season={r.get('season')} applied={r.get('applied')} "
               f"ale_total={r.get('ale_total')} title={json.dumps(r.get('title'), ensure_ascii=False)} "

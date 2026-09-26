@@ -68,10 +68,11 @@ def test_summarize_core_fields():
     assert rec["city"] == "Prince George, BC"
     assert rec["run_date"] == "2026-06-08"
     assert rec["ale_total"] == round((4 + 4 + 2) / 3, 2)
+    # Stored under the canonical spelling so per-dimension trends line up across runs.
     assert rec["ale_scores"] == [
-        {"dimension": "A — Amenities", "score": 4},
-        {"dimension": "L — Location", "score": 4},
-        {"dimension": "E — Experiences", "score": 2},
+        {"dimension": "A: Amenities surfaced", "score": 4},
+        {"dimension": "L: Location specifics", "score": 4},
+        {"dimension": "E: Experiences staged", "score": 2},
     ]
     assert rec["title"] == "Walk to UHNBC | Boho Suite"
     assert rec["summary_char_count"] == 488

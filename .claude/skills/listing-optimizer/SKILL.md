@@ -136,6 +136,9 @@ Author only this compact shape (omit optional funnel/prior_run when absent):
 }
 ```
 
+The scorecard has exactly seven rows, one per dimension: A: Amenities surfaced, L: Location
+specifics, E: Experiences staged, Photos channel, Copy channel, Captions channel, Reviews
+channel (integer scores 0..5). The renderer standardizes the names and computes `ale_total`.
 The renderer derives summary length and fills photos, comps, occupancy and cadence.
 Do not retype those blocks. Optional `funnel` is your normalized RankBreeze read with
 `source`, `city_rank`, `views_monthly`, `booking_rate_monthly`, `ctr_vs_similar`,
