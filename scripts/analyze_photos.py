@@ -33,6 +33,7 @@ from pathlib import Path
 import httpx
 
 import cache
+import photo_dupes
 
 try:  # standalone: load keys from the project .env (gitignored)
     from dotenv import load_dotenv
@@ -486,6 +487,14 @@ def aggregate(scored: list[dict]) -> dict:
     }
 
 
+def duplicate_gap(pairs) -> str | None:
+    if not pairs:
+        return None
+    listed = ", ".join(f"#{b} repeats #{a}" for a, b in pairs)
+    return (f"{len(pairs)} duplicate photo(s) in the gallery ({listed}). Delete the repeat of "
+            f"each pair; duplicates pad the gallery without adding a scene.")
+
+
 # ── Claude-vision fallback ────────────────────────────────────────────
 FALLBACK_MANIFEST = "photo_fallback.json"
 FALLBACK_DIR = "photo_fallback"
@@ -643,6 +652,13 @@ def main():
         sys.exit(f"[analyze_photos] 0/{len(photos)} photos scored by Gemini — "
                  f"Claude-vision fallback required: {fallback}")
     result = aggregate(scored)
+    try:  # whole gallery, not just the scored photos; free (thumbnails only)
+        dup = photo_dupes.check_gallery(gallery)
+    except Exception as e:  # never sink the scoring run on the extra check
+        dup = {"pairs": [], "checked": 0, "note": f"duplicate check failed ({type(e).__name__})"}
+    result["duplicates"] = dup
+    if duplicate_gap(dup["pairs"]):
+        result["gaps"].append(duplicate_gap(dup["pairs"]))
     result["scored_by"] = {"gemini": sum(1 for p in scored if p.get("scorer") == "gemini"),
                            "claude_vision": sum(1 for p in scored if p.get("scorer") == "claude_vision")}
     if result["scored_by"]["claude_vision"]:

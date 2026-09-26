@@ -161,6 +161,8 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
         A("Gemini usage: " + json.dumps(p["usage"]) + f"; cached photos={p.get('from_cache_count', 0)}")
     if p.get("failed"):
         A(f"UNRANKED (failed scoring): {[f.get('order') for f in p['failed']]}")
+    if (p.get("duplicates") or {}).get("note"):
+        A(f"duplicate check: {p['duplicates']['note']}")
     if p.get("distinct_beats"):
         A(f"distinct_beats_in_gallery: {p['distinct_beats']}")
     # The noise warning travels WITH the numbers: the model only ever reads this digest.

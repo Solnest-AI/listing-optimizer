@@ -51,6 +51,9 @@ Also tag each photo:
 4. **Map photo with pins + drive-times belongs in the top 10** (Location). If missing → flag to create one.
 5. **All-seasons represented** for seasonal properties: don't show only snow in summer.
 6. **De-prioritize:** duplicates, weak/dark shots, anything with black TVs or visible cords until restaged.
+7. **Duplicates are detected in code** (`photo_dupes.py`, whole gallery, thumbnails only) and
+   listed in the gaps as "#B repeats #A". The same room re-shot with people in it is NOT a
+   duplicate; it is the Experiences shot. Never tell a host to delete a people version.
 
 ---
 
