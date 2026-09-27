@@ -54,6 +54,9 @@ clearly labelled degraded report. Exit 0 can mean degraded: inspect the status s
 
 ## Cost controls and correctness
 
+- Copy is written by `.claude/agents/listing-writer.md` (Read and Bash only, rules in its
+  system prompt, three tool calls). It is generated: after editing SKILL.md or the writing
+  references, run `scripts/build_writer_agent.py` (a test fails while it is stale).
 - Reviews: 20 newest in one request. `--all-reviews` is opt-in. Report the sample scope.
 - AirROI: one call for a fresh coordinate pool, a second address call only if it is empty;
   cache 14 days. Exclude the subject's Airbnb ID from its own competitor pool.

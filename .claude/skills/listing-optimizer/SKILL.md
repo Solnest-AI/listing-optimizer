@@ -24,10 +24,24 @@ Discover properties through the user's PMS. Prefer saving the bundled Hospitable
 `properties --out <file>` result, then print a compact id/name list for selection.
 Do not echo full listing responses. Slugs use lowercase letters, digits and hyphens.
 
-One listing: run inline. Multiple listings: use one independent subagent per listing,
-with separate working/output directories and concise returned summaries. Limit active
-agents to the environment's capacity. If the user forbids delegation, honor that and
-keep each listing's working context separate. Do not split a single listing among agents.
+Write every listing with the bundled `listing-writer` agent (`.claude/agents/`). Run the
+pipeline first, then give the agent the slug, date, season and any owner-confirmed facts.
+It carries these rules in its system prompt, has only Read and Bash, and finishes in three
+tool calls, so a report does not pay for the tool catalogue a general agent loads or for
+extra turns that re-send the whole context. Several listings: one writer per listing, a
+few at once within the environment's capacity. Never split a listing among agents or put
+several listings in one agent. If the agent is missing (Claude Code loads agents at
+startup, so restart after installing or updating) or the user forbids delegation, write
+inline by following sections 3 and 4.
+
+Whole portfolio (Hospitable): `scripts/run_portfolio.py --date <DATE>` runs the pipeline for
+every listed property, one failure never stopping the rest, and prints a WRITER QUEUE. Launch
+one `listing-writer` per queued line (a few at once), passing the season; owner facts reach
+the digest from `config/properties.json` (`season`, `owner_facts`, `notes`). A writer that
+replies `PHOTO FALLBACK REQUIRED` needs section 2b first. A Gemini daily quota stops new
+listings; rerun with `--resume` after midnight Pacific. Finish with
+`scripts/run_portfolio.py --date <DATE> --summary` (per-listing AirROI, Gemini and Claude
+tokens, written to the Desktop). Slugs stay fixed per property in `state/slugs.json`.
 
 Python is `.venv/bin/python` (Windows `.venv\Scripts\python`). Use the current date.
 For Hospitable:
@@ -125,6 +139,7 @@ Read `digest.md` and these references when writing:
 - `references/ale-rubric.md`
 - `references/storybrand-sb7-rubric.md`
 - `references/airbnb-field-limits.md`
+- `references/description-sections.md`
 - `references/photo-rubric.md` only when interpreting/changing the photo plan
 
 Private feedback in the digest is guest-to-host: use it to find fixes and expectation
@@ -145,6 +160,17 @@ Low occupancy alone does not prove bad pricing. Any revenue-tool handoff is qual
 Title: at most 50 characters, aim 32..45, sentence case, no emojis. Summary: at most
 500 characters, front-load the persuasive first 295. The Space: strongest facts first,
 bullets welcome. Captions: at most 250 characters each. No phone/email/URLs in copy.
+Caption every photo the host keeps (full coverage): the Photo Plan's top five first, in its
+order, then the rest in gallery order. A photo you recommend deleting goes in
+`optimized.remove_orders` instead of getting a caption; a detected duplicate left uncaptioned
+counts the same. The renderer warns about any kept photo without a caption.
+Write the four lower sections too (`guest_access`, `other_notes`, `neighborhood`,
+`getting_around`) by `references/description-sections.md`: digest facts only, names and
+minutes, honest negatives, each deal-breaker twice, no codes, address or fees. Skip Interaction
+with guests (guests no longer see it). A fact a section needs but the digest lacks becomes a
+question in `optimized.host_to_confirm`, never a guess. Every problem you spot on the live
+listing (an undisclosed deal-breaker in reviews, a wrong amenity box, live copy the evidence
+disproves) goes in `listing_gaps` so the report flags it.
 Do not use em dashes in deliverables.
 
 Photo choices must respect season, valid photo orders and distinct `subject_kind` beats.
@@ -161,11 +187,15 @@ Author only this compact shape (omit optional funnel/prior_run when absent):
   "run_date":"YYYY-MM-DD", "season":"", "applied":false,
   "ale_scorecard":[{"dimension":"","score":0,"gap":"","fix":""}],
   "ale_total":0, "current":{"title":""},
-  "optimized":{"title":"","summary":"","the_space":"",
-    "captions":[{"order":0,"subject":"","caption":""}]},
-  "comps":{"amenity_gaps":[]},
+  "optimized":{"title":"","summary":"","the_space":"","guest_access":"","other_notes":"",
+    "neighborhood":"","getting_around":"","host_to_confirm":[],
+    "captions":[{"order":0,"subject":"","caption":""}], "remove_orders":[]},
+  "listing_gaps":[{"issue":"","fix":""}], "comps":{"amenity_gaps":[]},
   "diagnostics":{"content_signal":"","traffic_signal":"","occupancy_signal":"",
     "likely_lever":"","handoff":""},
+  "funnel":{"source":"RankBreeze","city_rank":"","views_monthly":{"Aug":687,"Sep":486},
+    "booking_rate_monthly":{"Aug":"7.12%","Sep":"4.69%"},"ctr_vs_similar":"","lever_focus":"",
+    "diagnosis":""},
   "prior_run":{"run_date":"","ale_total":0,"title":""}
 }
 ```
@@ -176,7 +206,9 @@ channel (integer scores 0..5). The renderer standardizes the names and computes 
 The renderer derives summary length and fills photos, comps, occupancy and cadence.
 Do not retype those blocks. Optional `funnel` is your normalized RankBreeze read with
 `source`, `city_rank`, `views_monthly`, `booking_rate_monthly`, `ctr_vs_similar`,
-`lever_focus` and `diagnosis`. Never fill unknown metrics with zero.
+`lever_focus` and `diagnosis`. The two monthly fields are objects keyed by month label, as in
+the example, never lists (the renderer rejects a list, costing a repeat turn). Never fill
+unknown metrics with zero.
 
 ## 4. Render and record
 
@@ -191,7 +223,10 @@ pricing bypass. Files: `~/Desktop/Listing Optimizer/<SLUG>/<DATE>/report.html`, 
 Local history is an atomic, locked upsert on listing/date in `state/history.jsonl`.
 
 Report the ALE score, three main gaps, photo recommendation, data limitations, prior-run
-trend (or baseline), output links, actual API calls and cache use. A report is a draft,
+trend (or baseline), output links, actual API calls and cache use, and the report's
+"Confirm with the host" questions. When the host answers one, save the answer (outside the
+writer) with `scripts/owner_facts.py add --slug <SLUG> "<fact>"` so every later run uses it
+and the host is never asked twice. A report is a draft,
 not a change to the live listing. Do not rerun the entire test suite during each routine
 optimization; the renderer performs per-output checks. Tests run when code changes.
 

@@ -29,6 +29,7 @@ from jinja2 import Environment, FileSystemLoader
 
 import ale
 import artifacts
+import listing_gaps
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = ROOT / ".claude" / "skills" / "listing-optimizer" / "output-templates"
@@ -83,6 +84,30 @@ CONTACT_RE = re.compile(r"""(?ix)
 EMOJI_RE = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F]")
 REPEATED_RE = re.compile(r"([!?*~#$%^&+=|•·★_-])\1")
 
+# The lower description sections (references/description-sections.md): optional in
+# result.json but expected. Caps are ours, well under the longest text measured on live
+# listings (2026-09-26). Interaction with guests is absent on purpose: guests no longer see it.
+LOWER_SECTIONS = (("guest_access", "Guest access", 600), ("other_notes", "Other things to note", 900),
+                  ("neighborhood", "Neighborhood", 900), ("getting_around", "Getting around", 600))
+# Where each section goes in Airbnb's editor, for the paste block.
+EDITOR_FIELD = {"other_notes": "Other details to note", "neighborhood": "Location > Neighborhood description",
+                "getting_around": "Location > Getting around"}
+# Guest access invites these: codes and passwords belong in the check-in message, never the
+# public listing. "The Wi-Fi password is in the welcome book" is fine; "password: Pine123" is not.
+SECRET_RE = re.compile(r"""(?ix)
+    \b(?:door|entry|lock\s?box|keypad|gate|garage|building|lock)\s+code\s*(?:is|:|=)?\s*\#?\d{3,}
+  | \bcode\s*(?::|=|\bis\b)\s*\#?\d{3,}
+  | \bpass(?:word|code)?\s*(?::|=|\bis\b)\s*
+    (?!(?:in|on|at|with|inside|posted|printed|sent|shared|provided|available|the|your|our|a)\b)\S
+""")
+# Airbnb's content policy bans text that identifies a listing's location. A number, one to
+# three capitalized words and a street suffix; "5 Minute Drive" and "5 Star Place" are not.
+ADDRESS_RE = re.compile(
+    r"\b\d{1,6}\s+(?!(?i:min|mins|minutes?|miles?|km|kms|blocks?|steps?|stairs?|hours?|hrs?|"
+    r"seconds?|stars?|bedrooms?|seasons?)\b)(?:[A-Z][a-z]+\s+){1,3}(?:Street|St|Avenue|Ave|Road|Rd|"
+    r"Drive|Dr|Crescent|Cres|Boulevard|Blvd|Lane|Ln|Court|Ct|Place|Pl|Way|Terrace|Trail|Parkway|"
+    r"Pkwy|Circle|Close)\b")
+
 
 def _check_contact(name: str, text: str) -> None:
     m = CONTACT_RE.search(text)
@@ -90,6 +115,18 @@ def _check_contact(name: str, text: str) -> None:
         kind = "phone" if m.group("phone") else "email" if m.group("email") else "URL"
         raise ValueError(f"optimized.{name} contains a {kind} ('{m.group(0)}'); Airbnb rejects "
                          f"contact details in listing copy")
+    m = SECRET_RE.search(text)
+    if m:
+        raise ValueError(f"optimized.{name} contains an access code or password ('{m.group(0)}'); "
+                         f"those go in the check-in message, never the public listing")
+    m = ADDRESS_RE.search(text)
+    if m:
+        raise ValueError(f"optimized.{name} contains a street address ('{m.group(0)}'); Airbnb's "
+                         f"content policy bans text that identifies the listing's location")
+
+
+def missing_lower_sections(optimized: dict) -> list[str]:
+    return [label for key, label, _ in LOWER_SECTIONS if not optimized.get(key)]
 
 
 def _check_title(title: str) -> None:
@@ -103,16 +140,34 @@ def _check_title(title: str) -> None:
         raise ValueError("optimized.title repeats a special character; Airbnb titles ban that")
 
 
+def gallery_orders(workdir: Path) -> set | None:
+    """Photo numbers in this run's gallery (Airbnb positions when the gallery is live)."""
+    src = workdir / "images.json"
+    if not src.exists() or artifacts.excluded(workdir, "images.json"):
+        return None
+    raw = json.loads(src.read_text(encoding="utf-8"))
+    items = raw.get("data") if isinstance(raw, dict) else raw
+    return {p.get("order") for p in items or [] if isinstance(p, dict) and type(p.get("order")) is int}
+
+
+def caption_coverage(data: dict, orders: set) -> dict:
+    """Full coverage (2026-09-26): every photo the host keeps gets a caption. Photos the
+    writer says to delete, and detected duplicates left uncaptioned, are removals instead."""
+    opt = data.get("optimized") or {}
+    captioned = {c.get("order") for c in opt.get("captions") or [] if isinstance(c, dict)} & orders
+    repeats = set((data.get("photos") or {}).get("duplicate_repeats") or []) & orders
+    remove = (set(opt.get("remove_orders") or []) & orders) | (repeats - captioned)
+    return {"gallery": len(orders), "captioned": len(captioned),
+            "missing": sorted(orders - captioned - remove), "remove": sorted(remove)}
+
+
 def check_caption_orders(data: dict, workdir: Path) -> list:
     """Mark captions whose photo order is not in this run's gallery as new photos to
     create (e.g. the map the report asks for). A mistyped order surfaces the same way,
     labelled in the paste block, instead of silently captioning the wrong photo."""
-    src = workdir / "images.json"
-    if not src.exists() or artifacts.excluded(workdir, "images.json"):
+    orders = gallery_orders(workdir)
+    if orders is None:
         return []
-    raw = json.loads(src.read_text(encoding="utf-8"))
-    items = raw.get("data") if isinstance(raw, dict) else raw
-    orders = {p.get("order") for p in items or [] if isinstance(p, dict)}
     new = []
     for c in (data.get("optimized") or {}).get("captions") or []:
         if c.get("order") not in orders:
@@ -134,6 +189,11 @@ def build_paste_block(data: dict) -> str:
     lines.append(o.get("summary", "").strip() + "\n")
     lines.append("--- THE SPACE ---")
     lines.append(o.get("the_space", "").strip() + "\n")
+    for key, label, _ in LOWER_SECTIONS:
+        if o.get(key):
+            field = f" (Airbnb editor: {EDITOR_FIELD[key]})" if key in EDITOR_FIELD else ""
+            lines.append(f"--- {label.upper()}{field} ---")
+            lines.append(o[key].strip() + "\n")
     caps = o.get("captions", [])
     if caps:
         lines.append("--- PHOTO CAPTIONS (recommended order) ---")
@@ -146,6 +206,14 @@ def build_paste_block(data: dict) -> str:
             else:
                 tag = f"[#{order} {subj}]" if order is not None else f"[{subj}]"
             lines.append(f"{tag} {c.get('caption', '').strip()}")
+    remove = (data.get("caption_coverage") or {}).get("remove") or []
+    if remove:
+        lines.append("\n--- DELETE THESE PHOTOS ---")
+        lines.extend(f"Airbnb photo {o}" if live else f"#{o}" for o in remove)
+    ask = o.get("host_to_confirm") or []
+    if ask:
+        lines.append("\n--- CONFIRM WITH THE HOST (not for pasting) ---")
+        lines.extend(f"- {q.strip()}" for q in ask)
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -166,6 +234,8 @@ def _photos_block(ps: dict) -> dict:
         "restage": ps.get("restage") or [],
         "gaps": ps.get("gaps") or [],
         "coverage_note": ps.get("coverage_note"),
+        "duplicate_repeats": [pair[1] for pair in (ps.get("duplicates") or {}).get("pairs") or []
+                              if isinstance(pair, list) and len(pair) == 2],
         "gallery_source": ps.get("gallery_source") or {"kind": "pms", "provider": "unknown"},
         "unranked": [f.get("order") for f in (ps.get("failed") or [])],
         "scored": [{"order": p.get("order"), "url": p.get("url"),
@@ -284,12 +354,43 @@ def validate_result(data: dict) -> None:
                 or len(c["caption"]) > 250):
             raise ValueError("captions need unique photo orders and 1..250 characters")
         orders.add(c["order"])
-    for key in ("title", "summary", "the_space"):
-        _check_contact(key, optimized[key])
+    for key, _, limit in LOWER_SECTIONS:
+        value = optimized.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"optimized.{key} must be nonempty text, or left out")
+        optimized[key] = value.strip()
+        if len(optimized[key]) > limit:
+            raise ValueError(f"optimized.{key} exceeds {limit} characters "
+                             f"(references/description-sections.md)")
+    gaps = data.get("listing_gaps")
+    if gaps is not None and (not isinstance(gaps, list) or not all(
+            isinstance(g, dict) and all(isinstance(g.get(k), str) and 0 < len(g[k].strip()) <= 300
+                                        for k in ("issue", "fix")) for g in gaps)):
+        raise ValueError('listing_gaps must be a list of {"issue": "...", "fix": "..."}, 1..300 characters each')
+    ask = optimized.get("host_to_confirm")
+    if ask is not None and (not isinstance(ask, list)
+                            or not all(isinstance(q, str) and q.strip() for q in ask)):
+        raise ValueError("optimized.host_to_confirm must be a list of questions")
+    for key in ("title", "summary", "the_space") + tuple(k for k, _, _ in LOWER_SECTIONS):
+        if optimized.get(key):
+            _check_contact(key, optimized[key])
     for c in captions:
         _check_contact(f"captions[#{c['order']}]", c["caption"])
     _check_title(optimized["title"])
     optimized["summary_char_count"] = len(optimized["summary"])
+    remove = optimized.get("remove_orders")
+    if remove is not None and (not isinstance(remove, list) or len(set(map(str, remove))) != len(remove)
+                               or any(type(o) is not int or o < 0 for o in remove)):
+        raise ValueError("optimized.remove_orders must be a list of unique photo numbers")
+    funnel = data.get("funnel")
+    if funnel is not None:
+        if not isinstance(funnel, dict):
+            raise ValueError("funnel must be an object")
+        for key in ("views_monthly", "booking_rate_monthly"):
+            if funnel.get(key) is not None and not isinstance(funnel[key], dict):
+                raise ValueError(f'funnel.{key} must map month to value, e.g. {{"Aug": 687}}')
     card = data.get("ale_scorecard")
     if card is not None:
         if not isinstance(card, list) or not all(isinstance(r, dict) for r in card):
@@ -356,6 +457,10 @@ def main():
         validate_result(data)
         if data.get("run_date") != args.date or data["listing"].get("slug", args.listing_slug) != args.listing_slug:
             raise ValueError("result listing/date do not match the requested output")
+        missing = missing_lower_sections(data["optimized"])
+        if missing:
+            print(f"[render_report] WARNING: no copy for {', '.join(missing)}. Write them "
+                  f"(references/description-sections.md) so the paste block covers every section")
         if args.workdir:
             new_photos = check_caption_orders(data, Path(args.workdir))
             if new_photos:
@@ -366,6 +471,19 @@ def main():
                 print(f"[render_report] merged from disk: {', '.join(merged)}")
             if caption_order_note(data):
                 print(f"[render_report] WARNING: {caption_order_note(data)}")
+            detected = data["detected_gaps"] = listing_gaps.detect(Path(args.workdir), data["optimized"])
+            n_gaps = len(detected) + len(data.get("listing_gaps") or [])
+            if n_gaps:
+                print(f"[render_report] listing gaps flagged: {n_gaps} ({len(detected)} found by the "
+                      f"checks, {n_gaps - len(detected)} by the writer)")
+            orders = gallery_orders(Path(args.workdir))
+            if orders:
+                cov = data["caption_coverage"] = caption_coverage(data, orders)
+                print(f"[render_report] captions cover {cov['captioned']} of {cov['gallery']} gallery photos"
+                      + (f"; to delete: {cov['remove']}" if cov["remove"] else ""))
+                if cov["missing"]:
+                    print(f"[render_report] WARNING: {len(cov['missing'])} kept photos have no caption: "
+                          f"{cov['missing']}. Caption them, or list them in optimized.remove_orders")
     except (OSError, ValueError) as e:
         sys.exit(f"[render_report] invalid result: {e}")
     # branding.json is per-user (gitignored); fall back to the shipped example.
@@ -381,8 +499,8 @@ def main():
         autoescape=lambda name: bool(name) and name.endswith((".html.j2", ".html")),
         trim_blocks=True, lstrip_blocks=True,
     )
-    html = env.get_template("report.html.j2").render(data=data)
-    md = env.get_template("report.md.j2").render(data=data)
+    html = env.get_template("report.html.j2").render(data=data, lower_sections=LOWER_SECTIONS)
+    md = env.get_template("report.md.j2").render(data=data, lower_sections=LOWER_SECTIONS)
     paste = build_paste_block(data)
 
     # Paste content goes verbatim into the PMS: word-strict. Reports carry a qualitative

@@ -77,6 +77,13 @@
   </div>
   {% endif %}
 
+  {% set gaps = (data.detected_gaps or []) + (data.listing_gaps or []) %}
+  {% if gaps %}
+  <h2>Listing gaps <span class="muted" style="font-size:12px;font-weight:400">fix on Airbnb</span></h2>
+  <div class="card">
+    <ul>{% for g in gaps %}<li><strong>{{ g.issue }}</strong> {{ g.fix }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
   <h2>Optimized Copy</h2>
   <div class="card">
     <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em">Title</div>
@@ -90,6 +97,14 @@
 
     <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-top:16px">The Space</div>
     <div class="prewrap">{{ data.optimized.the_space }}</div>
+    {% for key, label, _ in lower_sections %}{% if data.optimized[key] %}
+    <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-top:16px">{{ label }}</div>
+    <div class="prewrap">{{ data.optimized[key] }}</div>
+    {% endif %}{% endfor %}
+    {% if data.optimized.host_to_confirm %}
+    <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-top:16px">Confirm with the host before pasting</div>
+    <ul>{% for q in data.optimized.host_to_confirm %}<li>{{ q }}</li>{% endfor %}</ul>
+    {% endif %}
   </div>
 
   {% if data.photos %}
@@ -99,6 +114,7 @@
     {% if gs.kind == 'live_airbnb' %}<p><strong>Gallery:</strong> live Airbnb listing via {{ gs.provider }}. Photo numbers are Airbnb photo positions (1 = the current cover).</p>
     {% elif gs.kind %}<p><strong>Gallery:</strong> PMS copy ({{ gs.provider }}), not checked against the live Airbnb listing. Photo numbers are PMS positions; confirm the order on Airbnb before moving photos.</p>{% endif %}
     {% if data.photos.coverage_note %}<p><strong>Coverage:</strong> {{ data.photos.coverage_note }}</p>{% endif %}
+    {% if data.caption_coverage %}<p><strong>Captions:</strong> {{ data.caption_coverage.captioned }} of {{ data.caption_coverage.gallery }} photos captioned{% if data.caption_coverage.missing %}; no caption yet: {{ data.caption_coverage.missing | join(', ') }}{% endif %}{% if data.caption_coverage.remove %}; delete: {{ data.caption_coverage.remove | join(', ') }}{% endif %}.</p>{% endif %}
     {% if data.photos.unranked %}<p class="flag"><strong>Unranked photos:</strong> {{ data.photos.unranked | join(', ') }}</p>{% endif %}
     <div><strong>Hero:</strong> {% if data.photos.hero is not none %}{{ 'Airbnb photo ' if gs.kind == 'live_airbnb' else 'photo #' }}{{ data.photos.hero }}{% else %}unavailable{% endif %} &nbsp;·&nbsp;
       <strong>Recommended order:</strong> {{ (data.photos.recommended_top5_order or []) | join(' → ') }}</div>

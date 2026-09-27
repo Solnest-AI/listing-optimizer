@@ -199,13 +199,53 @@ async def _fetch_image(client: httpx.AsyncClient, url: str) -> tuple[str, str]:
     return ct, base64.b64encode(content).decode()
 
 
+# A bare 429 waits long enough for a per-minute window to roll over (1s and 2s did not, so a
+# portfolio run failed its batches into the Claude-vision fallback). A longer wait than
+# RATE_WAIT_MAX is a quota, not a burst: stop instead of stalling the run.
+RATE_WAIT_DEFAULT = (20, 40)
+RATE_WAIT_MAX = 90
+QUOTA_MESSAGES = {
+    "daily": "Gemini daily quota exhausted (it resets at midnight Pacific); rerun the same command "
+             "then, scores already cached are kept",
+    "long_wait": f"Gemini asked to wait longer than {RATE_WAIT_MAX}s; rerun the same command later, "
+                 "scores already cached are kept",
+}
+
+
+def _rate_limit(r) -> tuple[float | None, str | None]:
+    """How long a 429 asks us to wait: (seconds, None) to retry, or (None, reason) to stop.
+
+    Gemini names the exhausted quota in QuotaFailure.violations[].quotaId and the wait in
+    RetryInfo.retryDelay (for example "37s")."""
+    try:
+        details = (r.json().get("error") or {}).get("details") or []
+    except ValueError:
+        details = []
+    delay = None
+    for d in details if isinstance(details, list) else []:
+        kind = str(d.get("@type", "")) if isinstance(d, dict) else ""
+        if kind.endswith("QuotaFailure") and any(
+                "PerDay" in str(v.get("quotaId", "")) for v in d.get("violations") or [] if isinstance(v, dict)):
+            return None, "daily"
+        if kind.endswith("RetryInfo"):
+            m = re.fullmatch(r"(\d+(?:\.\d+)?)s", str(d.get("retryDelay", "")))
+            if m:
+                delay = float(m.group(1))
+    if delay is None:
+        header = r.headers.get("retry-after", "")
+        delay = float(header) if header.replace(".", "", 1).isdigit() else None
+    if delay is not None and delay > RATE_WAIT_MAX:
+        return None, "long_wait"
+    return delay, None
+
+
 async def _generate_scores(client, model, key, prepared, stats, fatal, attempts):
     """Send a bounded group once; retry only transient failures within the call budget."""
     def fail(message):
         return [{**p, "scored": False, "error": message} for p, _, _ in prepared]
 
     if fatal.is_set():
-        return fail("Gemini authorization/model failure; remaining requests cancelled")
+        return fail(stats.get("fatal_reason") or "Gemini authorization/model failure; remaining requests cancelled")
     if sum(len(b64) for _, _, b64 in prepared) > MAX_INLINE_BYTES:
         if len(prepared) == 1:
             return fail("image exceeds inline request budget")
@@ -239,7 +279,17 @@ async def _generate_scores(client, model, key, prepared, stats, fatal, attempts)
             if r.status_code in (401, 403, 404):
                 fatal.set()
                 return fail(f"Gemini HTTP {r.status_code}; check key/model access")
-            if r.status_code in (429, 500, 502, 503, 504) and attempt + 1 < attempts:
+            if r.status_code == 429:
+                wait, exhausted = _rate_limit(r)
+                if exhausted:
+                    stats["quota_exhausted"] = exhausted
+                    stats["fatal_reason"] = QUOTA_MESSAGES[exhausted]
+                    fatal.set()
+                    return fail(stats["fatal_reason"])
+                if attempt + 1 < attempts:
+                    await asyncio.sleep(wait if wait is not None else RATE_WAIT_DEFAULT[min(attempt, 1)])
+                    continue
+            if r.status_code in (500, 502, 503, 504) and attempt + 1 < attempts:
                 await asyncio.sleep(2 ** attempt)
                 continue
             if r.status_code >= 400:

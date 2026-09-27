@@ -144,7 +144,7 @@ def crosscheck(hosp_monthly: dict, rb_arg: str | None, threshold: float = 15.0) 
 def report_block(result: dict, upcoming: int | None, cc: dict | None) -> dict:
     """Flat block ready to drop into result.json['occupancy'] (templates consume this)."""
     fwd = result["forward_window"]
-    monthly_flat = {m: (f"{int(round(v['occupancy_pct']))}%" if v.get("occupancy_pct") is not None else "n/a")
+    monthly_flat = {m: (f"{v['occupancy_pct']:g}%" if v.get("occupancy_pct") is not None else "n/a")
                     for m, v in result["monthly"].items()}
     cc_str = "n/a"
     if cc:

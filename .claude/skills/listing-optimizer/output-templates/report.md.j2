@@ -14,6 +14,15 @@
 {% endfor %}
 
 {% endif %}
+{% set gaps = (data.detected_gaps or []) + (data.listing_gaps or []) %}
+{% if gaps %}
+## Listing gaps (fix on Airbnb)
+
+{% for g in gaps %}
+- **{{ g.issue }}** {{ g.fix }}
+{% endfor %}
+
+{% endif %}
 ## Optimized Copy
 
 ### Title
@@ -28,11 +37,31 @@
 
 {{ data.optimized.the_space }}
 
+{% for key, label, _ in lower_sections %}
+{% if data.optimized[key] %}
+### {{ label }}
+
+{{ data.optimized[key] }}
+
+{% endif %}
+{% endfor %}
+{% if data.optimized.host_to_confirm %}
+### Confirm with the host before pasting
+
+{% for q in data.optimized.host_to_confirm %}
+- {{ q }}
+{% endfor %}
+
+{% endif %}
 {% if data.optimized.captions %}
 ### Photo Captions (recommended order)
 
 {% for c in data.optimized.captions %}- **#{{ c.order }} {{ c.subject }}:** {{ c.caption }}
 {% endfor %}
+{% if data.caption_coverage %}
+Captions cover {{ data.caption_coverage.captioned }} of {{ data.caption_coverage.gallery }} photos.{% if data.caption_coverage.missing %} No caption yet: {{ data.caption_coverage.missing | join(', ') }}.{% endif %}{% if data.caption_coverage.remove %} Delete: {{ data.caption_coverage.remove | join(', ') }}.{% endif %}
+
+{% endif %}
 {% endif %}
 {% if data.photos %}
 ---

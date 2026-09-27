@@ -19,13 +19,16 @@
 ## Description sections (The space · Guest access · Interaction with guests · Neighborhood · Getting around · Other things to note)
 
 - These are the API fields PMSs sync (Hostaway maps them as Summary/Space/Access/Interaction/
-  Neighborhood_overview/Transit/Notes).
-- **No hard API cap observed** — live listings sync "The Space" at 2,500–3,000 chars without
-  error. However, hosts in Airbnb's NEW listing editor report a ~1,000-char box on "The Space"
-  and ~500 on "Guest access" (conflicting reports; Airbnb publishes no number).
-- **Practice:** put the most persuasive content (key features, seasonal draws, location
-  drive-times) in the FIRST ~1,000 chars of "The Space" so nothing load-bearing is lost if a
-  cap applies; total length 1,500–2,500 chars is proven safe via PMS sync.
+  Neighborhood_overview/Transit/Notes). Where each one shows, and how to write it:
+  `references/description-sections.md` (re-verified 2026-09-26).
+- **Airbnb publishes no cap.** Longest live text measured 2026-09-26: The space 2,498, Other
+  things to note 1,852, Neighborhood 954, Getting around 656. One PMS reports a 2,500 counter
+  on the web editor's text box. The "~1,000 on The Space, ~500 on Guest access" claim traced
+  back to a host quoting an AI chatbot; treat it as false.
+- Interaction with guests is no longer shown to guests. Neighborhood and Getting around now
+  sit under Location in the editor, and show in the map section of the listing page.
+- **Practice:** keep The Space at 1,500–2,500 chars with the strongest facts first; it sits
+  behind Show more, so the first lines do the work.
 - No phone numbers, emails, or URLs in any description field — breaks Airbnb sync/policy.
 
 ## Photos
@@ -54,6 +57,9 @@ tell the user to unlock the field on Airbnb or paste manually.
   caps, captions ≤250, no phone/email/URL in any paste field, and the title style rules
   (no emoji, no mostly-capitals, no repeated special characters). It derives
   `summary_char_count`; the agent does not write it.
-- Keep generated captions ≤250 chars each; lead "The Space" with its strongest 1,000 chars.
+- Keep generated captions ≤250 chars each; lead "The Space" with its strongest facts.
+- The four lower sections are optional in result.json but expected; the renderer warns when
+  one is missing, caps each well under the live maxima, and rejects door codes, Wi-Fi
+  passwords and street addresses in any paste field.
 - Photo plan: respect that only ~the first 5 photos drive the click decision; the map photo
   belongs in the top 10; aim the final gallery at 20–35 shots.

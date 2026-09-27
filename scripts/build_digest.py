@@ -20,6 +20,8 @@ from pathlib import Path
 import ale
 import amenities
 import artifacts
+from listing_gaps import DISCLOSURES
+from listing_gaps import registration_only as _registration_only
 
 REVIEW_CAP = 20
 REVIEW_CHARS = 700
@@ -102,7 +104,31 @@ def _says_more(live_text, pms_text, tolerance: int = 2) -> bool:
     return len(new) > tolerance
 
 
+# Owner-confirmed facts per listing (gitignored config, keyed by slug). They override
+# conflicting source data, so the digest shows them before anything else.
+CONFIG = Path(__file__).resolve().parent.parent / "config" / "properties.json"
+
+
+def _owner_notes(slug: str) -> list[str]:
+    try:
+        cfg = json.loads(CONFIG.read_text(encoding="utf-8")).get(slug)
+    except (OSError, ValueError, AttributeError):
+        return []
+    if not isinstance(cfg, dict):
+        return []
+    lines = []
+    if isinstance(cfg.get("season"), str) and cfg["season"].strip():
+        lines.append(f"- target season: {cfg['season'].strip()}")
+    for fact in cfg.get("owner_facts") or []:
+        if isinstance(fact, str) and fact.strip():
+            lines.append(f"- {fact.strip()}")
+    if isinstance(cfg.get("notes"), str) and cfg["notes"].strip():
+        lines.append(f"- notes: {cfg['notes'].strip()}")
+    return lines
+
+
 FUNNEL_MAX_CTR = 40.0   # above this, views include traffic from outside first-page search
+FUNNEL_MAX_MONTHLY_BOOKINGS = 31  # one listing, one check-in per night at most
 FUNNEL_MIN_VIEWS = 300  # below this, one or two bookings swing the booking rate wildly
 
 
@@ -122,6 +148,24 @@ def _funnel_checks(funnel: dict) -> list[str]:
         if views is not None and views < FUNNEL_MIN_VIEWS:
             out.append(f"{month}: only {views:g} views, too small a sample to judge the booking rate.")
     return out
+
+
+def _booking_rate_scale(funnel: dict) -> str | None:
+    """RankBreeze defines booking rate as "the percentage of viewers who booked", yet rate x views
+    gave 49 August bookings for one suite (boho-bliss 2026-09-26) and 64 in another month. The two
+    numbers are on different bases, so the rate is only comparable with similar listings."""
+    worst = 0.0
+    for m in (funnel.get("months") or {}).values():
+        if isinstance(m, dict):
+            rate, views = _num(m.get("booking_rate_pct")), _num(m.get("views"))
+            if rate is not None and views is not None:
+                worst = max(worst, rate * views / 100)
+    if worst <= FUNNEL_MAX_MONTHLY_BOOKINGS:
+        return None
+    return (f"BOOKING RATE SCALE: booking rate x views implies up to {worst:.0f} bookings in one month, more "
+            f"than one listing can take, so RankBreeze's booking rate and view count are on different "
+            f"bases. Compare the booking rate only with similar listings; never multiply it by views or "
+            f"quote a booking count from it.")
 
 
 def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
@@ -174,6 +218,9 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
     for key, limit in (("description", SUBJECT_TRUNC), ("summary", 1200)):
         if isinstance(subject[key], str) and len(subject[key]) > limit:
             subject[key] = subject[key][:limit] + " [truncated; remaining text available in subject.json]"
+    notes = _owner_notes(d.name)
+    if notes:
+        A("# OWNER NOTES (confirmed by the owner; they override conflicting source data)\n" + "\n".join(notes) + "\n")
     A("# SUBJECT\n" + json.dumps(subject, ensure_ascii=False))
     if live:
         facts = []
@@ -183,8 +230,12 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
                   if live.get(key) is True]
         if facts:
             A("live_airbnb_facts: " + " · ".join(facts))
-        if isinstance(live.get("guest_access"), str) and live["guest_access"].strip():
-            A("guest_access (live Airbnb): " + " ".join(live["guest_access"].split())[:600]
+        access = " ".join(live["guest_access"].split()) if isinstance(live.get("guest_access"), str) else ""
+        if access and _registration_only(access):
+            A("guest_access (live Airbnb): EMPTY. The field holds only a registration number, so guests "
+              "see no Guest access section. Write one.")
+        elif access:
+            A("guest_access (live Airbnb): " + access[:600]
               + "  (check the headline copy does not contradict this)")
         A(f"copy_source: LIVE Airbnb listing via {live_provider} (title/summary/description above are what "
           f"guests read now)"
@@ -230,6 +281,12 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
         if live_amenities is not None:
             A(f"missing_on_live_airbnb (in >={amenities.MISSING_MIN_PCT}% of comps, not ticked on the live "
               f"Airbnb listing): {fmt(gap['missing'][:15])}")
+            A("ticked_on_live_airbnb (verified amenities; copy may claim these): "
+              + "; ".join(str(a) for a in live_amenities[:120]))
+            for key, (label, _, what) in DISCLOSURES.items():
+                if key in {amenities.canon(a) for a in live_amenities}:
+                    A(f"DISCLOSURE REQUIRED: {label} are ticked on Airbnb, and Airbnb requires disclosing "
+                      f"them: {what} in other_notes (ask in host_to_confirm if the digest does not say).")
         else:
             A(f"missing_from_pms (in >={amenities.MISSING_MIN_PCT}% of comps, not in the PMS amenity "
               f"list or house rules; the live Airbnb checkboxes were not checked): {fmt(gap['missing'][:15])}")
@@ -378,6 +435,9 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
             A("FUNNEL CHECKS (do not diagnose from these months as if they were clean):")
             for c in checks:
                 A(f"- {c}")
+        scale = _booking_rate_scale(funnel)
+        if scale:
+            A(scale)
     occ = _read(d, "occupancy.json")
     if isinstance(occ, dict) and occ:
         fw = occ.get("forward_window") or {}

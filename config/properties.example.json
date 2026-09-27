@@ -3,6 +3,9 @@
   "your-listing-slug": {
     "rankbreeze_id": "123456",
     "seasonal": true,
-    "notes": "Free-text notes for the optimizer (e.g. 'winter ski / summer bike-park')."
+    "notes": "Free-text notes for the optimizer (e.g. 'winter ski / summer bike-park').",
+    "property_id": "optional: pins this slug to a PMS property so history stays keyed to it",
+    "season": "optional: the season the copy targets, e.g. 'Ski season (Dec to Apr)'",
+    "owner_facts": ["optional: facts the owner confirmed, shown first in the digest and treated as overriding source data, e.g. 'The fireplace is electric'"]
   }
 }
