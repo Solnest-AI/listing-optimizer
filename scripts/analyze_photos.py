@@ -404,7 +404,7 @@ def store_cached(scored, model):
     for p in scored:
         if p.get("scored") and not p.get("from_cache") and p.get("url"):
             items[_photo_cache_key(p["url"], model)] = {k: p[k] for k in _CACHE_FIELDS if k in p}
-    cache.put_many(CACHE_NS, items)
+    cache.put_many(CACHE_NS, items, max_entries=6000)  # 60 listings x 100 photos
     return len(items)
 
 
@@ -595,9 +595,14 @@ def aggregate(scored: list[dict]) -> dict:
 def duplicate_gap(pairs) -> str | None:
     if not pairs:
         return None
-    listed = ", ".join(f"#{b} repeats #{a}" for a, b in pairs)
-    return (f"{len(pairs)} duplicate photo(s) in the gallery ({listed}). Delete the repeat of "
-            f"each pair; duplicates pad the gallery without adding a scene.")
+    # Three identical shots are 3 pairs but 2 repeats: report each later photo once, against
+    # the earliest shot it repeats.
+    first: dict[int, int] = {}
+    for a, b in sorted(pairs):
+        first.setdefault(b, first.get(a, a))
+    listed = ", ".join(f"#{b} repeats #{a}" for b, a in sorted(first.items()))
+    return (f"{len(first)} duplicate photo(s) in the gallery ({listed}). Delete each repeat; "
+            f"duplicates pad the gallery without adding a scene.")
 
 
 # ── Claude-vision fallback ────────────────────────────────────────────
@@ -636,19 +641,21 @@ def load_agent_scores(path: Path, photos: list[dict]) -> tuple[list[dict], list[
 async def _download_all(photos: list[dict], folder: Path) -> list[dict]:
     folder.mkdir(parents=True, exist_ok=True)
     ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
-    out = []
+    # Eight at a time: one-by-one on slow venue wifi could outlast the pipeline's 10-minute cap.
+    sem = asyncio.Semaphore(8)
     async with httpx.AsyncClient() as client:
-        for p in photos:
+        async def one(p):
             entry = {"order": p["order"], "url": p["url"], "caption": p.get("caption", "")}
-            try:
-                mime, b64 = await _fetch_image(client, p["url"])
-                local = folder / f"{p['order']}.{ext[mime]}"
-                local.write_bytes(base64.b64decode(b64))
-                entry["local_path"] = str(local)
-            except (httpx.HTTPError, ValueError, KeyError, OSError) as e:
-                entry["download_error"] = str(e)[:120]
-            out.append(entry)
-    return out
+            async with sem:
+                try:
+                    mime, b64 = await _fetch_image(client, p["url"])
+                    local = folder / f"{p['order']}.{ext[mime]}"
+                    local.write_bytes(base64.b64decode(b64))
+                    entry["local_path"] = str(local)
+                except (httpx.HTTPError, ValueError, KeyError, OSError) as e:
+                    entry["download_error"] = str(e)[:120]
+            return entry
+        return list(await asyncio.gather(*(one(p) for p in photos)))
 
 
 def write_fallback(photos: list[dict], out_dir: Path, reason: str) -> Path:

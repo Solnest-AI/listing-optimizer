@@ -42,7 +42,8 @@ SLUG_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 # "rate"/"nightly"/"per" — the funnel section legitimately says "Booking rate".
 PRICING_RE = re.compile(r"""(?ix)
     (?:
-        \bpriced?\b | \bpricing\b | \badr\b | \brevpar\b | \brevenue\b
+        \bpric(?:e|es|ed|ing)\b | \badr\b | \brevpar\b | \brevenue\b
+      | \bdiscount(?:s|ed)?\b | \b\d+\s?%\s*off\b
       | \bper[\s-]?night\b | /\s*night\b
       | \b(?:nightly|daily|average\s+daily)\s+rate\b | \brate\s*/\s*night\b
       | \bmin(?:imum)?[\s-]?stay\b
@@ -50,6 +51,7 @@ PRICING_RE = re.compile(r"""(?ix)
       | \b\d+[\s-]?nights?\s+min(?:imum)?\b
       | [$€£¥₹]\s?\d
       | \b(?:USD|CAD|EUR|GBP|AUD|NZD|MXN)\s*\d
+      | \b\d[\d,.]*\s*(?:USD|CAD|EUR|GBP|AUD|NZD|MXN|euros?|pounds?)\b
       | \b\d[\d,.]*\s*/\s*night\b
       | \b\d[\d,.]*\s+(?:a|per)\s+(?:night|stay|nt)\b
       | \b\d[\d,.]*\s*(?:-|–|to)\s*\d[\d,.]*\s+(?:a\s+|per\s+|/\s*)?(?:night|stay|nightly)\b
@@ -64,6 +66,8 @@ PRICE_NUMBER_RE = re.compile(r"""(?ix)
     (?:
         [$€£¥₹]\s?\d
       | \b(?:USD|CAD|EUR|GBP|AUD|NZD|MXN)\s*\d
+      | \b\d[\d,.]*\s*(?:USD|CAD|EUR|GBP|AUD|NZD|MXN|dollars?|euros?|pounds?)\b
+      | \b\d+\s?%\s*(?:off|discount)\b
       | \b\d[\d,.]*\s*/\s*night\b
       | \b\d[\d,.]*\s+per\s+night\b
       | \b(?:nightly|daily|average\s+daily)\s+rate\b

@@ -18,9 +18,13 @@ Pillow is optional: without it, the check is skipped and says so.
 from __future__ import annotations
 
 import asyncio
+import base64
+import contextlib
 import io
 
 import httpx
+
+import cache
 
 try:
     from PIL import Image
@@ -38,7 +42,8 @@ def available() -> bool:
     return Image is not None
 
 
-def signature(im) -> tuple[int, list[float]]:
+def raw_signature(im) -> tuple[int, bytes]:
+    """dHash bits plus the GRIDxGRID grayscale pixels: 4 KB, compact enough to cache."""
     gray = im.convert("L")
     small = gray.resize((DHASH_SIZE + 1, DHASH_SIZE), Image.LANCZOS).tobytes()
     bits = 0
@@ -46,10 +51,18 @@ def signature(im) -> tuple[int, list[float]]:
         for c in range(DHASH_SIZE):
             i = r * (DHASH_SIZE + 1) + c
             bits = (bits << 1) | (small[i] > small[i + 1])
-    px = list(gray.resize((GRID, GRID), Image.LANCZOS).tobytes())
+    return bits, gray.resize((GRID, GRID), Image.LANCZOS).tobytes()
+
+
+def from_raw(bits: int, pixels: bytes) -> tuple[int, list[float]]:
+    px = list(pixels)
     mean = sum(px) / len(px)
     sd = (sum((x - mean) ** 2 for x in px) / len(px)) ** 0.5 or 1.0
     return bits, [(x - mean) / sd for x in px]
+
+
+def signature(im) -> tuple[int, list[float]]:
+    return from_raw(*raw_signature(im))
 
 
 def _worst_block(a: list[float], b: list[float]) -> float:
@@ -76,20 +89,41 @@ def find_pairs(sigs: dict) -> list[tuple[int, int]]:
             if is_duplicate(sigs[a], sigs[b])]
 
 
+SIG_CACHE_NS = "photo_sigs"
+SIG_TTL_DAYS = 120  # same lifetime as the photo scores; the URL changes when the image does
+
+
+def _src(p: dict) -> str:
+    return p.get("thumbnail_url") or p["url"]
+
+
 async def _signatures(photos: list[dict], concurrency: int = 8) -> tuple[dict, int]:
+    # A rerun on an unchanged gallery reuses every signature instead of re-downloading each
+    # thumbnail (100 GETs for a full gallery).
+    hits = cache.get_many(SIG_CACHE_NS, [_src(p) for p in photos], SIG_TTL_DAYS)
+    sigs, failed, fresh = {}, 0, {}
+    for p in photos:
+        h = hits.get(_src(p))
+        if isinstance(h, list) and len(h) == 2 and isinstance(h[1], str):
+            with contextlib.suppress(ValueError, TypeError):
+                sigs[p["order"]] = from_raw(int(h[0]), base64.b64decode(h[1]))
+    todo = [p for p in photos if p["order"] not in sigs]
     sem = asyncio.Semaphore(concurrency)
-    sigs, failed = {}, 0
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         async def one(p):
             nonlocal failed
             async with sem:
                 try:
-                    r = await client.get(p.get("thumbnail_url") or p["url"])
+                    r = await client.get(_src(p))
                     r.raise_for_status()
-                    sigs[p["order"]] = signature(Image.open(io.BytesIO(r.content)))
+                    bits, pixels = raw_signature(Image.open(io.BytesIO(r.content)))
+                    sigs[p["order"]] = from_raw(bits, pixels)
+                    # ~5.5 KB per photo as base64 (the float form was ~85 KB)
+                    fresh[_src(p)] = [str(bits), base64.b64encode(pixels).decode("ascii")]
                 except Exception:  # one bad image must not sink the check
                     failed += 1
-        await asyncio.gather(*(one(p) for p in photos))
+        await asyncio.gather(*(one(p) for p in todo))
+    cache.put_many(SIG_CACHE_NS, fresh, max_entries=1500)  # ~8 MB: 15 full galleries
     return sigs, failed
 
 

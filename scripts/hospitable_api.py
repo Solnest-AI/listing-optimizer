@@ -93,19 +93,29 @@ def _get(path: str, params: dict | None = None) -> dict:
     return r.json()
 
 
-def _paginate(path: str, params: dict | None = None, max_pages: int = 20) -> list:
-    """Follow Laravel-style pagination (data + meta.current_page/last_page)."""
-    items, page = [], 1
+def _paginate_full(path: str, params: dict | None = None, max_pages: int = 20) -> tuple[list, bool, int | None]:
+    """Follow Laravel-style pagination (data + meta.current_page/last_page).
+    Returns (items, reached the last page, the API's total)."""
+    items, page, complete, total = [], 1, False, None
     params = dict(params or {})
     while page <= max_pages:
         params["page"] = page
         data = _get(path, params)
         items.extend(data.get("data") or [])
         meta = data.get("meta") or {}
+        total = meta.get("total", total)
         if page >= int(meta.get("last_page") or 1):
+            complete = True
             break
         page += 1
-    return items
+    if not complete:
+        print(f"[hospitable_api] {path}: stopped at {max_pages} pages ({len(items)} of "
+              f"{total if total is not None else '?'}); the result is partial", file=sys.stderr)
+    return items, complete, total
+
+
+def _paginate(path: str, params: dict | None = None, max_pages: int = 20) -> list:
+    return _paginate_full(path, params, max_pages)[0]
 
 
 def _fetch_reviews(pid: str, limit: int, all_reviews: bool) -> dict:
@@ -116,12 +126,13 @@ def _fetch_reviews(pid: str, limit: int, all_reviews: bool) -> dict:
     recent of 101" without paying for the other 81.
     """
     if all_reviews:
-        items = _paginate(f"/properties/{pid}/reviews", {"per_page": 50}, max_pages=20)
-        total = len(items)
+        items, complete, total = _paginate_full(f"/properties/{pid}/reviews", {"per_page": 50}, max_pages=60)
         return {"data": items,
-                "_pull": {"requested": "all", "returned": len(items), "total_available": total,
-                          "complete_history": True,
-                          "note": "full lifetime history; aggregates span every review"}}
+                "_pull": {"requested": "all", "returned": len(items),
+                          "total_available": total if total is not None else len(items),
+                          "complete_history": complete,
+                          "note": ("full lifetime history; aggregates span every review" if complete else
+                                   f"stopped at {len(items)} of {total}; aggregates span only these")}}
     first = _get(f"/properties/{pid}/reviews", {"per_page": max(1, limit), "page": 1})
     items = first.get("data") or []
     meta = first.get("meta") or {}

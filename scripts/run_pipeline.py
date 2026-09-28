@@ -289,6 +289,26 @@ def main():
             "steps": [vars(s) for s in steps],
         })
 
+    def fits(name, value) -> bool:
+        """A file WE pulled from Hospitable earlier is reused only if it answers this run's
+        request: a 20-review pull does not satisfy --all-reviews, and a 90-day calendar does
+        not satisfy --calendar-days 365. Staged files (another PMS) are always trusted."""
+        if not args.pid or not isinstance(value, dict):
+            return True
+        if name == "reviews.json":
+            pull = value.get("_pull") or {}
+            asked = pull.get("requested")
+            want = "all" if args.all_reviews else args.review_limit
+            if args.all_reviews and pull.get("complete_history") is False:
+                return False  # a capped lifetime pull is retried, never reused as complete
+            return asked is None or asked == want
+        if name == "calendar.json":
+            data = value.get("data") if isinstance(value.get("data"), dict) else value
+            dates = sorted(str(d.get("date")) for d in (data.get("days") or []) if isinstance(d, dict))
+            end = str(start_date + timedelta(days=args.calendar_days - 1))
+            return not dates or (dates[0] <= args.date and dates[-1] >= end)
+        return True
+
     def have(name):
         """A usable file already on disk. --refresh only re-pulls what we can fetch, so
         staged inputs on a non-Hospitable run stay valid. A file excluded by an earlier
@@ -300,7 +320,7 @@ def main():
                     and (wd / name).stat().st_mtime_ns <= prior_stamp):
                 return False
             value = json.loads((wd / name).read_text(encoding="utf-8-sig"))
-            return isinstance(value, (dict, list))
+            return isinstance(value, (dict, list)) and fits(name, value)
         except (OSError, ValueError):
             return False
 

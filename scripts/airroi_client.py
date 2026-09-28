@@ -8,6 +8,7 @@ Get a key: https://www.airroi.com/api/developer/activate
 """
 from __future__ import annotations
 
+import asyncio
 import math
 import os
 from pathlib import Path
@@ -42,10 +43,29 @@ def _key() -> str:
     return k
 
 
+RETRY_STATUS = (429, 502, 503, 504)  # rate limit / gateway: the request was not served
+
+
 async def _get(endpoint: str, params: dict, client: httpx.AsyncClient) -> dict:
+    """Every AirROI call is billed, so retry only what was never served: a refused connection,
+    429 and gateway errors. A read timeout may have been served, so it is not retried."""
     params = {k: v for k, v in params.items() if v is not None}
-    r = await client.get(BASE.rstrip("/") + endpoint, params=params,
-                         headers={"X-API-KEY": _key()}, timeout=TIMEOUT)
+    for attempt in range(3):
+        try:
+            r = await client.get(BASE.rstrip("/") + endpoint, params=params,
+                                 headers={"X-API-KEY": _key()}, timeout=TIMEOUT)
+        except httpx.ConnectError as e:
+            if attempt == 2:
+                raise AirROIError(f"AirROI unreachable ({type(e).__name__}); check the connection") from e
+        except httpx.HTTPError as e:
+            raise AirROIError(f"AirROI request failed ({type(e).__name__}); retry later") from e
+        else:
+            if r.status_code not in RETRY_STATUS or attempt == 2:
+                break
+            wait = r.headers.get("retry-after", "")
+            await asyncio.sleep(min(float(wait), 10.0) if wait.replace(".", "", 1).isdigit() else 2.0 * (attempt + 1))
+            continue
+        await asyncio.sleep(2.0 * (attempt + 1))
     try:
         data = r.json()
     except ValueError as e:

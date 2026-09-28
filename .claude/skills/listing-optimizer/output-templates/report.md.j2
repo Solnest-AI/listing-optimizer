@@ -127,7 +127,7 @@ Captions cover {{ data.caption_coverage.captioned }} of {{ data.caption_coverage
 |---|{{ '---|' * (data.funnel.views_monthly|length) }}
 | **Listing views** (real traffic) | {{ data.funnel.views_monthly.values()|list|join(' | ') }} |
 {% if data.funnel.booking_rate_monthly %}
-| Booking rate | {{ data.funnel.booking_rate_monthly.values()|list|join(' | ') }} |
+| Booking rate |{% for m in data.funnel.views_monthly %} {{ data.funnel.booking_rate_monthly.get(m, '–') }} |{% endfor %}
 {% endif %}
 {% endif %}
 
