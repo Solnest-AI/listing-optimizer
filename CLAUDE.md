@@ -54,7 +54,7 @@ clearly labelled degraded report. Exit 0 can mean degraded: inspect the status s
 
 ## Cost controls and correctness
 
-- Copy is written by `.claude/agents/listing-writer.md` (Read and Bash only, rules in its
+- Copy is written by `.claude/agents/listing-writer.md` (Read and Bash, plus Write on Windows; rules in its
   system prompt, three tool calls). It is generated: after editing SKILL.md or the writing
   references, run `scripts/build_writer_agent.py` (a test fails while it is stale).
 - Reviews: 20 newest in one request. `--all-reviews` is opt-in. Report the sample scope.
