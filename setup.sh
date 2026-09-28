@@ -55,10 +55,11 @@ fi
 PYEXE=""; SYSPY=""
 if [ -n "$UV" ]; then
   ok "uv $("$UV" --version 2>/dev/null | awk '{print $2}')"
-  PYEXE=$(UV_PYTHON_DOWNLOADS=never "$UV" python find "$PYV" 2>/dev/null || true)
+  # --no-project --system: the real interpreter, never this folder's .venv.
+  PYEXE=$(UV_PYTHON_DOWNLOADS=never "$UV" python find --no-project --system "$PYV" 2>/dev/null || true)
   if [ -z "$PYEXE" ] && ask "  Install Python $PYV through uv now?"; then
     "$UV" python install "$PYV" >/dev/null 2>&1
-    PYEXE=$(UV_PYTHON_DOWNLOADS=never "$UV" python find "$PYV" 2>/dev/null || true)
+    PYEXE=$(UV_PYTHON_DOWNLOADS=never "$UV" python find --no-project --system "$PYV" 2>/dev/null || true)
   fi
   [ -n "$PYEXE" ] && ok "Python $PYV (uv): $PYEXE" || warn "uv could not provide Python $PYV."
 else
@@ -106,11 +107,7 @@ else ok 'Using your existing .env (nothing overwritten)'; fi
 if [ -n "$KIT" ]; then .venv/bin/python scripts/kit_link.py --kit "$KIT"; else .venv/bin/python scripts/kit_link.py; fi
 rc=$?
 [ $rc -eq 1 ] && warn 'No kit found. Set it up first (github.com/Solnest-AI/str-secrets-connections), or paste keys into .env by hand.'
-if [ $rc -ne 0 ] && [ -z "${LO_NO_OPEN:-}" ]; then
-  # Keys go into the file, never into the chat and never through a prompt.
-  echo '  Opening .env: paste each missing key after its = sign, save, then say "saved".'
-  case "$(uname)" in Darwin) open -e .env ;; *) xdg-open .env >/dev/null 2>&1 || true ;; esac
-fi
+NEED_ENV=0; [ $rc -ne 0 ] && NEED_ENV=1
 
 # ---------------------------------------------------------------- 5. tests
 step 5 'Self-test'
@@ -124,7 +121,16 @@ fi
 
 # ---------------------------------------------------------------- 6. key check
 step 6 'Checking your keys (free, read-only)'
-.venv/bin/python scripts/check_keys.py || PROBLEMS+=('Paste the keys marked !! into .env (never into the chat), save, then rerun setup or say "saved".')
+if ! .venv/bin/python scripts/check_keys.py; then
+  PROBLEMS+=('Paste the keys marked !! into .env (never into the chat), save, then rerun setup or say "saved".')
+  NEED_ENV=1
+fi
+if [ "$NEED_ENV" = 1 ] && [ -z "${LO_NO_OPEN:-}" ]; then
+  # Keys go into the file, never into the chat and never through a prompt.
+  echo '  Opening .env: paste each key marked !! after its = sign, save, then say "saved".'
+  case "$(uname)" in Darwin) open -e .env 2>/dev/null || open .env 2>/dev/null ;; *) xdg-open .env >/dev/null 2>&1 ;; esac \
+    || warn "Could not open an editor. Open this file yourself: $PWD/.env"
+fi
 
 # ---------------------------------------------------------------- done
 echo

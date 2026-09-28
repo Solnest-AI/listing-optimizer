@@ -90,7 +90,8 @@ function Find-UvPython($uv) {
         $env:UV_PYTHON_INSTALL_DIR = $h
         $env:UV_PYTHON_DOWNLOADS = 'never'
         # No Select-Object in this pipeline: it ends the process early and corrupts $LASTEXITCODE.
-        try { $p = @(& $uv python find $PyVersion 2>$null) } catch { $p = @() }
+        # --no-project --system: the real interpreter, never this folder's .venv.
+        try { $p = @(& $uv python find --no-project --system $PyVersion 2>$null) } catch { $p = @() }
         $rc = $LASTEXITCODE
         $env:UV_PYTHON_DOWNLOADS = $null
         if ($rc -eq 0 -and $p.Count -gt 0 -and (Test-Path "$($p[0])".Trim())) { return "$($p[0])".Trim() }
@@ -205,12 +206,7 @@ if ($Kit) { $kitArgs = @('--kit', $Kit) }
 & $VenvPy scripts\kit_link.py @kitArgs
 $kitRc = $LASTEXITCODE
 if ($kitRc -eq 1) { Warn 'No kit found. Set it up first (github.com/Solnest-AI/str-secrets-connections), or paste keys into .env by hand.' }
-if ($kitRc -ne 0 -and -not $env:LO_NO_OPEN) {
-    # The credential contract: keys go into the file, never into the chat and never through
-    # a prompt. Open the file so the attendee pastes what is missing and saves.
-    Write-Host '  Opening .env in Notepad: paste each missing key after its = sign, save, then say "saved".'
-    Start-Process notepad.exe -ArgumentList "`"$EnvFile`""
-}
+$NeedEnv = ($kitRc -ne 0)
 
 # ---------------------------------------------------------------- 5. tests
 Step 5 'Self-test'
@@ -229,7 +225,24 @@ if ($SkipTests) {
 # ---------------------------------------------------------------- 6. key check
 Step 6 'Checking your keys (free, read-only)'
 & $VenvPy scripts\check_keys.py
-if ($LASTEXITCODE -ne 0) { $Problems.Add('Paste the keys marked !! into .env (never into the chat), save, then rerun setup or say "saved".') }
+if ($LASTEXITCODE -ne 0) {
+    $Problems.Add('Paste the keys marked !! into .env (never into the chat), save, then rerun setup or say "saved".')
+    $NeedEnv = $true
+}
+if ($NeedEnv -and -not $env:LO_NO_OPEN) {
+    # The credential contract: keys go into the file, never into the chat and never through a
+    # prompt. Open the file so the attendee pastes what is missing or rejected, and saves.
+    Write-Host '  Opening .env: paste each key marked !! after its = sign, save, then say "saved".'
+    # Notepad is a Store app on Windows 11 and can be missing (uninstalled, Windows Sandbox).
+    # The editor must never take the run down with it: try Notepad, then the default handler,
+    # then just say where the file is.
+    $opened = $false
+    foreach ($try in @({ Start-Process notepad.exe -ArgumentList "`"$EnvFile`"" -ErrorAction Stop },
+                       { Start-Process $EnvFile -ErrorAction Stop })) {
+        try { & $try; $opened = $true; break } catch { }
+    }
+    if (-not $opened) { Warn "Could not open an editor. Open this file yourself: $EnvFile" }
+}
 
 # ---------------------------------------------------------------- done
 Write-Host ""
