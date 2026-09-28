@@ -30,8 +30,13 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-Use Python 3.10+. On Windows, create the environment with `py -m venv .venv` and use
-`.venv\Scripts\python` / `.venv\Scripts\pip` in the commands.
+Use Python 3.10+.
+
+**Windows:** double-click `setup.cmd`. It finds (or offers to install) Python and Git,
+builds `.venv`, creates `.env` and asks for any missing keys, runs the tests and checks
+each key with a free read-only request. Rerun it any time; it keeps existing keys and files.
+Use `.venv\Scripts\python` wherever these docs say `.venv/bin/python`.
+`scripts/check_keys.py` rechecks keys on any OS.
 
 Create `.env` from `.env.example` **only if it does not already exist**, then configure:
 

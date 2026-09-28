@@ -8,3 +8,6 @@
 *.gif binary
 *.ico binary
 *.pdf binary
+# Batch files must keep CRLF or cmd.exe can misparse them.
+*.cmd text eol=crlf
+*.bat text eol=crlf
