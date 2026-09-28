@@ -1,11 +1,15 @@
 # Listing Optimizer - Windows setup. Double-click setup.cmd, or run:
 #   powershell -ExecutionPolicy Bypass -File setup.ps1
+# Claude Code runs it as:
+#   powershell -NoProfile -ExecutionPolicy Bypass -File setup.ps1 -NoPrompt -AutoInstall
 # Safe to rerun: keeps your existing .env keys, .venv, config, history and reports.
+# Exit codes: 0 ready, 1 stopped (see message), 2 finished but keys/tests need attention.
 # Keep this file ASCII-only: Windows PowerShell 5.1 misreads UTF-8 without a BOM.
 
 param(
     [switch]$SkipTests,      # skip the ~30s test suite
-    [switch]$NoPrompt        # never ask questions (CI / scripted runs)
+    [switch]$NoPrompt,       # never ask questions (Claude Code / scripted runs)
+    [switch]$AutoInstall     # install missing Python/Git with winget without asking
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,8 +27,31 @@ function Fail($text) {
     Write-Host ""; exit 1
 }
 function Ask($question) {
+    if ($AutoInstall) { return $true }
     if ($NoPrompt) { return $false }
     return (Read-Host "$question [Y/n]") -notmatch '^[nN]'
+}
+function Get-Winget {
+    # winget ships with Windows 11 but a damaged PATH can hide it; its home is fixed.
+    $cmd = Get-Command winget -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $fixed = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\winget.exe'
+    if (Test-Path $fixed) { return $fixed }
+    return $null
+}
+function Install-WithWinget($id, $extra) {
+    $winget = Get-Winget
+    if (-not $winget) {
+        Warn 'winget is not available on this PC (it ships with Windows 10 1709+ / Windows 11).'
+        return
+    }
+    Write-Host "  Installing $id with winget (a Windows prompt may ask you to approve it)..."
+    & $winget install --id $id -e --accept-package-agreements --accept-source-agreements @extra
+    if ($LASTEXITCODE -ne 0 -and $extra.Count -gt 0) {
+        # Some manifests have no per-user variant; retry without the scope switch.
+        & $winget install --id $id -e --accept-package-agreements --accept-source-agreements
+    }
+    Refresh-Path
 }
 function Refresh-Path {
     $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
@@ -35,6 +62,17 @@ function Refresh-Path {
 # Skips the Microsoft Store "python" alias, which exists on every PC but is not Python.
 function Find-Python {
     $candidates = @(@('py', '-3'), @('python'), @('python3'))
+    # A python.org install that has not reached this process's PATH yet (fresh winget
+    # install, or 'Add to PATH' left unticked). Newest version first.
+    $dirs = @("$env:LOCALAPPDATA\Programs\Python", "$env:ProgramFiles", "${env:ProgramFiles(x86)}")
+    foreach ($dir in $dirs) {
+        if (-not ($dir -and (Test-Path $dir))) { continue }
+        Get-ChildItem $dir -Directory -Filter 'Python3*' -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending | ForEach-Object {
+                $exe = Join-Path $_.FullName 'python.exe'
+                if (Test-Path $exe) { $candidates += , @($exe) }
+            }
+    }
     foreach ($c in $candidates) {
         $exe = $c[0]
         if (-not (Get-Command $exe -ErrorAction SilentlyContinue)) { continue }
@@ -60,14 +98,13 @@ Step 1 'Python 3.10 or newer'
 $py = Find-Python
 if (-not $py) {
     Warn 'Python 3.10+ was not found.'
-    if ((Get-Command winget -ErrorAction SilentlyContinue) -and (Ask '  Install Python 3.12 now with winget?')) {
-        winget install --id Python.Python.3.12 -e --scope user --accept-package-agreements --accept-source-agreements
-        Refresh-Path
+    if (Ask '  Install Python 3.12 now with winget?') {
+        Install-WithWinget 'Python.Python.3.12' @('--scope', 'user')
         $py = Find-Python
     }
     if (-not $py) {
         Fail ("Install Python from https://www.python.org/downloads/ (tick 'Add python.exe to PATH' " +
-              "on the first screen), close this window, then run setup again.")
+              "on the first screen), then run setup again.")
     }
 }
 $pyExe = $py[0]; $pyArgs = @($py | Select-Object -Skip 1)
@@ -79,11 +116,8 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
     Ok ((git --version) -replace '^git version ', 'Git ')
 } else {
     Warn 'Git is not installed. Claude Code on Windows needs it.'
-    if ((Get-Command winget -ErrorAction SilentlyContinue) -and (Ask '  Install Git now with winget?')) {
-        winget install --id Git.Git -e --accept-package-agreements --accept-source-agreements
-        Refresh-Path
-    }
-    if (Get-Command git -ErrorAction SilentlyContinue) { Ok 'Git installed' }
+    if (Ask '  Install Git now with winget?') { Install-WithWinget 'Git.Git' @() }
+    if (Get-Command git -ErrorAction SilentlyContinue) { Ok 'Git installed (restart Claude Code so it can see it)' }
     else { $Problems.Add('Install Git from https://git-scm.com/download/win, then restart Claude Code.') }
 }
 

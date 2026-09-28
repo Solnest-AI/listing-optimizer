@@ -16,6 +16,12 @@ description: Use when a short-term-rental host asks to optimize, audit or refres
   the renderer assembles measured facts from disk.
 - Run history is local (`state/history.jsonl`). Nothing writes to a database.
 
+## 0. Preflight
+
+If `.venv` is missing or `scripts/check_keys.py` (run with the venv Python) does not exit
+0, follow "Setup or update" in CLAUDE.md first: the setup script installs missing Python,
+Git and packages itself, and missing keys are collected one at a time. Only then continue.
+
 ## 1. Scope and discovery
 
 Ask the target season only if the user has not provided it. Use known property facts for

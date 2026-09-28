@@ -16,6 +16,11 @@ Open Claude Code in your existing Listing Optimizer folder and say:
 > Review the setup instructions in CLAUDE.md, configure any missing dependencies,
 > and run the tests. Preserve my existing keys, settings, history and reports.
 
+Claude runs the bundled setup script (`setup.ps1` on Windows, `setup.sh` on Mac), which
+installs Python and Git if they are missing, builds the environment, runs the tests and
+checks your keys. It then asks you for any key that is still missing. Nothing to install
+by hand first: Claude Code is the only prerequisite.
+
 Then ask **"Optimize my [listing] for [season]."** The agent discovers your properties,
 collects evidence, writes the copy and renders the reports. It asks only for missing
 information. The agent's reasoning runs in your Claude Code session; there is no separate

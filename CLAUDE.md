@@ -17,21 +17,35 @@ Python scripts collect and validate evidence; the agent writes ALE + StoryBrand 
 
 ## Setup or update
 
+Run this before the first optimization in a session whenever `.venv` is missing or
+`scripts/check_keys.py` does not exit 0. The setup script installs what is missing; never
+send the user off to install Python, Git or packages by hand first.
+
 1. Check the current folder and known install before cloning. Existing `.git`: inspect
    status, preserve local edits, then `git pull --ff-only`. Never clone a second copy.
    ZIP install: preserve local config/state and back up shipped files before converting
    in place to git. Never remove the old folder as an update strategy.
-2. Use Python 3.10+. Create `.venv` if absent and install
-   `requirements.txt` plus `requirements-dev.txt`. Reinstall dependencies after updates.
-   Mac/Linux: `.venv/bin/python`; Windows: `.venv\Scripts\python`.
-3. Create `.env` from `.env.example` only if absent. Configure AirROI and Gemini using
-   the vendor account pages: https://www.airroi.com/api/developer/activate and
-   https://aistudio.google.com/apikey. Verify the current account UI before giving click paths.
-4. For Hospitable, use the existing platform token as `HOSPITABLE_TOKEN` (alias:
-   `HOSPITABLE_API_KEY`). The bundled `hospitable_api.py` implements read-only collection.
-   Other PMSs stage the documented JSON contract using their supported read tools.
-5. Run `.venv/bin/python -m pytest -q`. Tests do not verify live credentials. Verify
-   configured providers with a small read-only request, saving payloads to files.
+2. Run the setup script without prompts. It finds or installs Python 3.10+ and Git
+   (winget on Windows, Homebrew on Mac; a system approval prompt may appear on the user's
+   screen, so say so), creates or rebuilds `.venv`, installs `requirements.txt` plus
+   `requirements-dev.txt`, creates `.env` from `.env.example` only if absent, runs the
+   tests and checks each key with a free read-only request. It never overwrites keys or files.
+   - Windows (works from Bash or PowerShell):
+     `powershell -NoProfile -ExecutionPolicy Bypass -File setup.ps1 -NoPrompt -AutoInstall`
+   - Mac/Linux: `bash setup.sh --no-prompt --auto-install`
+   Exit 0: ready. Exit 2: read its `!!` lines and continue with step 3. Exit 1: show the
+   user its last lines and stop. If Git was just installed, tell the user to restart
+   Claude Code once setup finishes.
+3. For each key the output marks `!!`, ask the user for it, one at a time, with where to
+   get it: AirROI https://www.airroi.com/api/developer/activate, Gemini
+   https://aistudio.google.com/apikey, Hospitable my.hospitable.com → Apps → API access →
+   Platform token (`HOSPITABLE_TOKEN`; alias `HOSPITABLE_API_KEY`; skip for other PMSs).
+   Put the pasted value on that key's line in `.env` with the Edit tool. Never echo it
+   back, log it or commit it. Then rerun `scripts/check_keys.py` with the venv Python
+   (Mac/Linux `.venv/bin/python`, Windows `.venv\Scripts\python`) until it exits 0.
+4. Other PMSs stage the documented JSON contract using their supported read tools. The
+   bundled `hospitable_api.py` implements read-only Hospitable collection.
+5. Tests do not verify live credentials; `check_keys.py` and the first pipeline run do.
 6. Optional branding: `branding.example.json` to `branding.json` only if absent.
    Per-listing configuration: `config/properties.example.json` to `config/properties.json`.
    Preserve `.env`, `config/`, `branding.json`, `state/`, and `output/` through upgrades.
