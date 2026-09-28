@@ -67,22 +67,20 @@ def declared(example: Path) -> list[str]:
 
 def merge(target: Path, updates: dict[str, str]) -> list[str]:
     """Set each name to its value, in place; append names the file lacks; touch nothing else.
-    Returns the names written. Writes UTF-8 without a BOM and LF endings."""
+    A duplicated name is set on its LAST line, the one python-dotenv and the kit's env_load
+    actually use. Returns the names written. Writes UTF-8 without a BOM and LF endings."""
     lines = target.read_text(encoding="utf-8-sig").splitlines() if target.exists() else []
-    written: list[str] = []
-    seen: set[str] = set()
-    out: list[str] = []
-    for line in lines:
+    last: dict[str, int] = {}
+    for i, line in enumerate(lines):
         m = LINE_RE.match(line)
-        name = m.group(1) if m else None
-        if name in updates and name not in seen:
-            out.append(f"{name}={updates[name]}")
-            written.append(name)
-            seen.add(name)
-        else:
-            out.append(line)
+        if m and m.group(1) in updates:
+            last[m.group(1)] = i
+    out = list(lines)
+    for name, i in last.items():
+        out[i] = f"{name}={updates[name]}"
+    written = list(last)
     for name, value in updates.items():
-        if name not in seen:
+        if name not in last:
             out.append(f"{name}={value}")
             written.append(name)
     target.write_text("\n".join(out) + "\n", encoding="utf-8", newline="\n")

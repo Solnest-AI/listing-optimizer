@@ -42,11 +42,10 @@ New install:
 ```bash
 git clone https://github.com/Solnest-AI/listing-optimizer.git
 cd listing-optimizer
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+bash setup.sh            # Mac/Linux; Windows: double-click setup.cmd
 ```
 
-Use Python 3.10+.
+Python comes from uv (3.13); the setup script installs both.
 
 Setting up without Claude: run `setup.sh` (Mac) or double-click `setup.cmd` (Windows). Both
 use uv for Python (never the Microsoft Store's `python` stub), copy keys from the

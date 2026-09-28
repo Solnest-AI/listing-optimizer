@@ -25,7 +25,7 @@ def test_writer_has_only_read_bash_write_and_inherits_the_model():
     """Fewer tools is the whole saving; a changed model would change copy quality. Write is
     there only for Windows, where a long heredoc command is truncated (2026-09-28)."""
     front = bwa.build().split("---")[1]
-    assert 'tools: ["Read", "Bash", "Write"]' in front
+    assert 'tools: ["Read", "Bash", "Write", "PowerShell"]' in front
     assert "model: inherit" in front
 
 
@@ -39,6 +39,7 @@ def test_fixed_flow_writes_renders_and_records_in_one_call():
 def test_windows_writes_result_with_the_write_tool_not_a_heredoc():
     text = bwa.build()
     assert "Windows (Platform: win32)" in text and "do NOT use the heredoc" in text
+    assert "use the PowerShell tool" in text and "if ($LASTEXITCODE -eq 0)" in text, "no Git Bash: PowerShell path"
 
 
 def test_writer_hands_back_when_photos_still_need_scoring():

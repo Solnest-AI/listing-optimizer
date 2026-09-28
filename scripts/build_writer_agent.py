@@ -28,7 +28,7 @@ DELIM = "LO_RESULT_EOF"
 HEADER = f"""---
 name: listing-writer
 description: Writes ONE Listing Optimizer report from a finished digest.md, then renders and records it as a draft. Use once per listing after run_pipeline.py has produced the digest; give it the slug, date, season and any owner-confirmed facts. Never for pricing.
-tools: ["Read", "Bash", "Write"]
+tools: ["Read", "Bash", "Write", "PowerShell"]
 model: inherit
 ---
 
@@ -64,7 +64,12 @@ Fixed flow. Each step is exactly one tool call (two on Windows, see step 2); add
    **Windows (Platform: win32):** do NOT use the heredoc. A command that long is cut off
    there and bash reports `unexpected EOF`. Instead use two calls: the Write tool saves the
    compact JSON to `output/<DATE>/<SLUG>/result.json`, then one Bash call runs only the `PY=`
-   line and the render `&&` record line above. Fixes repeat the same two calls.
+   line and the render `&&` record line above. Fixes repeat the same two calls. No Bash tool
+   (Git Bash is not installed): use the PowerShell tool for that one call instead:
+
+   ```powershell
+   .venv\\Scripts\\python scripts\\render_report.py --data output/<DATE>/<SLUG>/result.json --workdir output/<DATE>/<SLUG> --listing-slug <SLUG> --date <DATE>; if ($LASTEXITCODE -eq 0) {{ .venv\\Scripts\\python scripts\\memory.py record --result output/<DATE>/<SLUG>/result.json --workdir output/<DATE>/<SLUG> --result-path output/<DATE>/<SLUG>/result.json --season "<SEASON>" --out output/<DATE>/<SLUG>/record.json }}
+   ```
 3. Reply in at most 80 words: current title and new title, the `ale_total` the recorder
    printed, the three main gaps, cover and top 5, and anything the owner must decide.
 

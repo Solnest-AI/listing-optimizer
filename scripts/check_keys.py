@@ -31,7 +31,9 @@ def _get(url: str, headers: dict) -> str:
 
 
 def check() -> list[tuple[str, str, bool]]:
-    load_dotenv(ROOT / ".env", encoding="utf-8-sig")
+    # override=True: this checks what is IN the file. A stale key inherited from the shell must
+    # not make a blank or rejected line in .env look fine (Codex review, 2026-09-28).
+    load_dotenv(ROOT / ".env", encoding="utf-8-sig", override=True)
     rows = []
     hosp = os.environ.get("HOSPITABLE_TOKEN") or os.environ.get("HOSPITABLE_API_KEY")
     if hosp:

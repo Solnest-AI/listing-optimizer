@@ -60,6 +60,16 @@ def test_existing_lines_survive_and_blank_kit_values_never_overwrite(world):
     assert env["HOSPITABLE_TOKEN"] == "hosp-secret", "missing declared names are appended"
 
 
+def test_duplicate_names_are_set_on_the_line_that_wins(world):
+    """python-dotenv and the kit's env_load both take the LAST occurrence of a name."""
+    lo, kit = world
+    (lo / ".env").write_text("GEMINI_API_KEY=old\nAIRROI_API_KEY=old\nAIRROI_API_KEY=\n", encoding="utf-8")
+    kl.link(kit)
+    lines = (lo / ".env").read_text(encoding="utf-8").splitlines()
+    assert lines[1] == "AIRROI_API_KEY=old" and lines[2] == "AIRROI_API_KEY=air-secret"
+    assert kl.read_env(lo / ".env")["AIRROI_API_KEY"] == "air-secret"
+
+
 def test_main_never_prints_a_value_and_reports_required_gaps(world, capsys):
     lo, kit = world
     rc = kl.main(["--kit", str(kit)])

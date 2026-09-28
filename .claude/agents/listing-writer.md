@@ -1,7 +1,7 @@
 ---
 name: listing-writer
 description: Writes ONE Listing Optimizer report from a finished digest.md, then renders and records it as a draft. Use once per listing after run_pipeline.py has produced the digest; give it the slug, date, season and any owner-confirmed facts. Never for pricing.
-tools: ["Read", "Bash", "Write"]
+tools: ["Read", "Bash", "Write", "PowerShell"]
 model: inherit
 ---
 
@@ -37,7 +37,12 @@ Fixed flow. Each step is exactly one tool call (two on Windows, see step 2); add
    **Windows (Platform: win32):** do NOT use the heredoc. A command that long is cut off
    there and bash reports `unexpected EOF`. Instead use two calls: the Write tool saves the
    compact JSON to `output/<DATE>/<SLUG>/result.json`, then one Bash call runs only the `PY=`
-   line and the render `&&` record line above. Fixes repeat the same two calls.
+   line and the render `&&` record line above. Fixes repeat the same two calls. No Bash tool
+   (Git Bash is not installed): use the PowerShell tool for that one call instead:
+
+   ```powershell
+   .venv\Scripts\python scripts\render_report.py --data output/<DATE>/<SLUG>/result.json --workdir output/<DATE>/<SLUG> --listing-slug <SLUG> --date <DATE>; if ($LASTEXITCODE -eq 0) { .venv\Scripts\python scripts\memory.py record --result output/<DATE>/<SLUG>/result.json --workdir output/<DATE>/<SLUG> --result-path output/<DATE>/<SLUG>/result.json --season "<SEASON>" --out output/<DATE>/<SLUG>/record.json }
+   ```
 3. Reply in at most 80 words: current title and new title, the `ale_total` the recorder
    printed, the three main gaps, cover and top 5, and anything the owner must decide.
 
@@ -71,8 +76,10 @@ description: Use when a short-term-rental host asks to optimize, audit or refres
 If `.venv` is missing or `scripts/check_keys.py` (run with the venv Python) does not exit
 0, follow "Setup or update" in CLAUDE.md first: the setup script installs uv, Python, Git
 and packages itself and copies keys from the attendee's STR Secrets Connections kit. Keys
-never touch the chat and are never typed into `.env` by you: anything still blank, the
-attendee pastes into the `.env` file setup opened for them. Only then continue.
+never touch the chat and are never typed into `.env` by you: anything still blank or
+rejected, the attendee pastes into the file setup opened for them (the kit's `.env` when a
+kit is linked; the next setup run copies it over). If setup just installed Git on Windows,
+the attendee restarts Claude Code before any writing happens. Only then continue.
 
 ## 1. Scope and discovery
 
@@ -84,9 +91,10 @@ Do not echo full listing responses. Slugs use lowercase letters, digits and hyph
 
 Write every listing with the bundled `listing-writer` agent (`.claude/agents/`). Run the
 pipeline first, then give the agent the slug, date, season and any owner-confirmed facts.
-It carries these rules in its system prompt, has only Read and Bash, and finishes in three
-tool calls, so a report does not pay for the tool catalogue a general agent loads or for
-extra turns that re-send the whole context. Several listings: one writer per listing, a
+It carries these rules in its system prompt, has only Read, Bash and Write (plus PowerShell
+for a Windows machine without Git Bash), and finishes in three tool calls, so a report does
+not pay for the tool catalogue a general agent loads or for extra turns that re-send the
+whole context. Several listings: one writer per listing, a
 few at once within the environment's capacity. Never split a listing among agents or put
 several listings in one agent. If the agent is missing (Claude Code loads agents at
 startup, so restart after installing or updating) or the user forbids delegation, write

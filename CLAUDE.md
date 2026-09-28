@@ -60,14 +60,15 @@ by hand. You run every command yourself; the attendee never opens a terminal.
    No kit found: ask where the connections folder is (a path) and run
    `scripts/kit_link.py --kit <folder>` with the venv Python. No kit at all: the attendee
    pastes keys straight into `.env` (step 4).
-4. Keys still blank after the link are blank in the kit too. Setup has opened `.env` in
-   Notepad or TextEdit. Tell the attendee which lines to fill and where each key comes from
+4. A key still blank or rejected after the link is wrong in the kit too, and the kit's
+   `.env` is the one place keys live: setup has opened it (this folder's `.env` only when
+   no kit is linked). Tell the attendee which lines to fill and where each key comes from
    (AirROI https://www.airroi.com/api/developer/activate, Gemini
    https://aistudio.google.com/apikey, Hospitable my.hospitable.com → Apps → API access →
-   Platform token; other PMSs leave Hospitable blank). Wait for "saved", then rerun
-   `scripts/check_keys.py` with the venv Python (Windows `.venv\Scripts\python`, Mac
-   `.venv/bin/python`) until it exits 0. Mention once that pasting the same key into the
-   kit's `.env` and saying "Check my connections" there keeps the kit complete.
+   Platform token, named `HOSPITABLE_API_KEY` in the kit; other PMSs leave it blank). Wait
+   for "saved", then rerun the setup command from step 2: it copies the new value over and
+   rechecks. Never paste a corrected value into this folder's `.env` while a kit is linked;
+   the next link would overwrite it with the kit's value.
 5. Other PMSs stage the documented JSON contract using their supported read tools. The
    bundled `hospitable_api.py` implements read-only Hospitable collection.
 6. Tests do not verify live credentials; `check_keys.py` and the first pipeline run do.

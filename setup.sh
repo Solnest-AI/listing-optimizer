@@ -5,8 +5,9 @@
 # Exit codes: 0 ready, 1 stopped (see message), 2 finished but keys or tests need attention.
 #
 # Built to match the STR Secrets Connections kit: Python comes from uv (the kit installs it
-# too), and keys never touch the chat: they are copied from the kit by scripts/kit_link.py and
-# anything still blank is pasted by the attendee into .env, which this script opens for them.
+# too), and keys never touch the chat. They are copied from the kit by scripts/kit_link.py;
+# anything blank or rejected is pasted by the attendee into the kit's .env (the one place keys
+# live), which this script opens, and the next run copies it over. No kit: this folder's .env.
 set -u
 cd "$(dirname "$0")" || exit 1
 
@@ -33,15 +34,9 @@ ask()  { # yes/no; --auto-install answers yes, --no-prompt answers no
   read -r -p "$1 [Y/n] " r; [[ ! "$r" =~ ^[nN] ]]
 }
 find_uv() { for c in "$(command -v uv 2>/dev/null)" "$HOME/.local/bin/uv"; do [ -n "$c" ] && [ -x "$c" ] && { echo "$c"; return 0; }; done; return 1; }
-find_system_python() {
-  for c in python3.13 python3.12 python3.11 python3.10 python3 python; do
-    command -v "$c" >/dev/null 2>&1 || continue
-    v=$("$c" -c 'import sys; print(sys.version_info[0], sys.version_info[1])' 2>/dev/null) || continue
-    set -- $v
-    if [ "$1" = 3 ] && [ "$2" -ge 10 ]; then echo "$c"; return 0; fi
-  done
-  return 1
-}
+# --no-project --system: the real interpreter (uv-managed or not), never this folder's .venv.
+find_uv_python() { UV_PYTHON_DOWNLOADS=never "$1" python find --no-project --system "$PYV" 2>/dev/null; }
+venv_ok() { [ -x .venv/bin/python ] && .venv/bin/python -c 'import sys' >/dev/null 2>&1; }
 
 printf '\n  Listing Optimizer setup\n  Folder: %s\n' "$PWD"
 
@@ -52,24 +47,15 @@ if [ -z "$UV" ] && ask '  Install uv now (Astral installer, no admin prompt)?'; 
   curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null 2>&1
   UV=$(find_uv || true)
 fi
-PYEXE=""; SYSPY=""
-if [ -n "$UV" ]; then
-  ok "uv $("$UV" --version 2>/dev/null | awk '{print $2}')"
-  # --no-project --system: the real interpreter, never this folder's .venv.
-  PYEXE=$(UV_PYTHON_DOWNLOADS=never "$UV" python find --no-project --system "$PYV" 2>/dev/null || true)
-  if [ -z "$PYEXE" ] && ask "  Install Python $PYV through uv now?"; then
-    "$UV" python install "$PYV" >/dev/null 2>&1
-    PYEXE=$(UV_PYTHON_DOWNLOADS=never "$UV" python find --no-project --system "$PYV" 2>/dev/null || true)
-  fi
-  [ -n "$PYEXE" ] && ok "Python $PYV (uv): $PYEXE" || warn "uv could not provide Python $PYV."
-else
-  warn 'uv is not installed and could not be installed.'
+[ -n "$UV" ] || fail 'uv could not be installed. Check your internet connection and run setup again, or install it yourself from https://docs.astral.sh/uv/getting-started/installation/ and rerun.'
+ok "uv $("$UV" --version 2>/dev/null | awk '{print $2}')"
+PYEXE=$(find_uv_python "$UV" || true)
+if [ -z "$PYEXE" ] && ask "  Install Python $PYV through uv now?"; then
+  "$UV" python install "$PYV" >/dev/null 2>&1
+  PYEXE=$(find_uv_python "$UV" || true)
 fi
-if [ -z "$PYEXE" ]; then
-  SYSPY=$(find_system_python || true)
-  [ -n "$SYSPY" ] || fail "No Python. Check your internet connection and run setup again (it installs uv and Python $PYV itself), or install Python from https://www.python.org/downloads/ and rerun."
-  ok "falling back to system Python $("$SYSPY" -c 'import sys; print(sys.version.split()[0])')"
-fi
+[ -n "$PYEXE" ] || fail "uv could not provide Python $PYV. Check your internet connection and run setup again."
+ok "Python $PYV (uv): $PYEXE"
 
 # ---------------------------------------------------------------- 2. Git
 step 2 'Git'
@@ -87,16 +73,14 @@ fi
 
 # ---------------------------------------------------------------- 3. venv + packages
 step 3 'Python environment and packages (first time takes a minute)'
-if [ -d .venv ] && [ ! -x .venv/bin/python ]; then
-  warn '.venv is not a Mac/Linux environment (copied from Windows?). Rebuilding it.'
+if [ -d .venv ] && ! venv_ok; then
+  warn '.venv does not run here (copied from another machine or Windows?). Rebuilding it.'
   rm -rf .venv
 fi
 if [ ! -x .venv/bin/python ]; then
-  if [ -n "$UV" ] && [ -n "$PYEXE" ]; then "$UV" venv .venv --python "$PYEXE" --quiet || fail 'Could not create .venv.'
-  else "$SYSPY" -m venv .venv || fail 'Could not create .venv.'; fi
+  "$UV" venv .venv --python "$PYEXE" --quiet && venv_ok || fail 'Could not create .venv.'
 fi
-if [ -n "$UV" ]; then "$UV" pip install --python .venv/bin/python --quiet -r requirements.txt -r requirements-dev.txt
-else .venv/bin/python -m pip install --disable-pip-version-check -q -r requirements.txt -r requirements-dev.txt; fi \
+"$UV" pip install --python .venv/bin/python --quiet -r requirements.txt -r requirements-dev.txt \
   || fail 'Package install failed. Check your internet connection and run setup again.'
 ok "Packages installed in .venv (Python $(.venv/bin/python -c 'import sys; print(sys.version.split()[0])'))"
 
@@ -104,10 +88,17 @@ ok "Packages installed in .venv (Python $(.venv/bin/python -c 'import sys; print
 step 4 'API keys: copied from your STR Secrets Connections kit'
 if [ ! -f .env ]; then cp .env.example .env; ok 'Created .env from .env.example'
 else ok 'Using your existing .env (nothing overwritten)'; fi
-if [ -n "$KIT" ]; then .venv/bin/python scripts/kit_link.py --kit "$KIT"; else .venv/bin/python scripts/kit_link.py; fi
+if [ -n "$KIT" ]; then kit_out=$(.venv/bin/python scripts/kit_link.py --kit "$KIT"); else kit_out=$(.venv/bin/python scripts/kit_link.py); fi
 rc=$?
-[ $rc -eq 1 ] && warn 'No kit found. Set it up first (github.com/Solnest-AI/str-secrets-connections), or paste keys into .env by hand.'
-NEED_ENV=0; [ $rc -ne 0 ] && NEED_ENV=1
+printf '%s\n' "$kit_out"
+KITDIR=""
+while IFS= read -r p; do [ -f "$p/fan-out-env.sh" ] && { KITDIR="$p"; break; }; done < <(printf '%s\n' "$kit_out" | sed -n 's/^\[kit\] \(.*\)$/\1/p')
+[ $rc -eq 1 ] && warn "No kit found: standalone install. Keys live in this folder's .env only (github.com/Solnest-AI/str-secrets-connections has the kit)."
+# Where a missing or rejected key gets pasted. With a kit linked, the kit's .env is the one
+# place keys live and the next run copies it over; a value pasted here would be overwritten.
+ENV_TO_OPEN="$PWD/.env"; ENV_LABEL="this folder's .env"
+[ -n "$KITDIR" ] && { ENV_TO_OPEN="$KITDIR/.env"; ENV_LABEL="the kit's .env ($ENV_TO_OPEN)"; }
+NEED_ENV=0; [ $rc -eq 2 ] && NEED_ENV=1
 
 # ---------------------------------------------------------------- 5. tests
 step 5 'Self-test'
@@ -122,14 +113,14 @@ fi
 # ---------------------------------------------------------------- 6. key check
 step 6 'Checking your keys (free, read-only)'
 if ! .venv/bin/python scripts/check_keys.py; then
-  PROBLEMS+=('Paste the keys marked !! into .env (never into the chat), save, then rerun setup or say "saved".')
+  PROBLEMS+=("Paste each key marked !! into $ENV_LABEL (never into the chat), save, then rerun setup or say \"saved\".")
   NEED_ENV=1
 fi
 if [ "$NEED_ENV" = 1 ] && [ -z "${LO_NO_OPEN:-}" ]; then
   # Keys go into the file, never into the chat and never through a prompt.
-  echo '  Opening .env: paste each key marked !! after its = sign, save, then say "saved".'
-  case "$(uname)" in Darwin) open -e .env 2>/dev/null || open .env 2>/dev/null ;; *) xdg-open .env >/dev/null 2>&1 ;; esac \
-    || warn "Could not open an editor. Open this file yourself: $PWD/.env"
+  echo "  Opening $ENV_LABEL: paste each key marked !! after its = sign, save, then say \"saved\"."
+  case "$(uname)" in Darwin) open -e "$ENV_TO_OPEN" 2>/dev/null || open "$ENV_TO_OPEN" 2>/dev/null ;; *) xdg-open "$ENV_TO_OPEN" >/dev/null 2>&1 ;; esac \
+    || warn "Could not open an editor. Open this file yourself: $ENV_TO_OPEN"
 fi
 
 # ---------------------------------------------------------------- done
