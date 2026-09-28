@@ -46,10 +46,15 @@ function Install-WithWinget($id, $extra) {
         return
     }
     Write-Host "  Installing $id with winget (a Windows prompt may ask you to approve it)..."
-    & $winget install --id $id -e --accept-package-agreements --accept-source-agreements @extra
+    # --source winget: only the community repo. Without it winget also queries the Microsoft
+    # Store and aborts with 0x8a15003b when the Store is unreachable or disabled (seen in a
+    # clean Windows Sandbox), even though the package is in the community repo.
+    $common = @('install', '--id', $id, '-e', '--source', 'winget', '--disable-interactivity',
+                '--accept-package-agreements', '--accept-source-agreements')
+    & $winget @common @extra
     if ($LASTEXITCODE -ne 0 -and $extra.Count -gt 0) {
         # Some manifests have no per-user variant; retry without the scope switch.
-        & $winget install --id $id -e --accept-package-agreements --accept-source-agreements
+        & $winget @common
     }
     Refresh-Path
 }
