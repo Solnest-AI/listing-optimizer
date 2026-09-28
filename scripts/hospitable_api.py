@@ -224,4 +224,6 @@ def main():
 
 
 if __name__ == "__main__":
+    import console
+    console.utf8_stdio()
     main()

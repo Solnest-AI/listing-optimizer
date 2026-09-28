@@ -30,7 +30,7 @@ SLUG_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 def _load(path: Path) -> dict:
     if not path.exists():
         return {}
-    data = json.loads(path.read_text(encoding="utf-8"))   # a bad file raises; never overwrite it
+    data = json.loads(path.read_text(encoding="utf-8-sig"))   # a bad file raises; never overwrite it
     if not isinstance(data, dict):
         raise ValueError(f"{path} is not a JSON object; fix it by hand before adding facts")
     return data
@@ -90,4 +90,6 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    import console
+    console.utf8_stdio()
     raise SystemExit(main(sys.argv[1:]))

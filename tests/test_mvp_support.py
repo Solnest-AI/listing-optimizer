@@ -65,7 +65,7 @@ def test_parallel_history_updates_retain_every_listing(monkeypatch, tmp_path):
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(lambda i: memory.append_local({"listing_slug": f"listing-{i}",
             "run_date": "2026-09-20"}, path), range(8)))
-    assert {json.loads(line)["listing_slug"] for line in path.read_text().splitlines()} == {
+    assert {json.loads(line)["listing_slug"] for line in path.read_text(encoding="utf-8").splitlines()} == {
         f"listing-{i}" for i in range(8)}
 
 
@@ -98,7 +98,7 @@ def test_invalid_copy_does_not_create_deliverables(tmp_path, optimized):
     run = subprocess.run([sys.executable, str(ROOT / "scripts/render_report.py"),
         "--data", str(tmp_path / "result.json"), "--listing-slug", "cabin",
         "--date", "2026-09-20", "--out-base", str(tmp_path / "reports")],
-        capture_output=True, text=True)
+        capture_output=True, text=True, encoding="utf-8")
     assert run.returncode != 0
     assert not (tmp_path / "reports/cabin/2026-09-20/report.html").exists()
 
@@ -108,7 +108,7 @@ def test_photo_failures_are_visible_in_both_reports():
     data["photos"] = {"coverage_note": "ranked 1 of 30 photos; 29 FAILED",
         "unranked": [5, 6], "recommended_top5_order": [], "hero": 0}
     env = Environment(loader=FileSystemLoader(str(rr.TEMPLATES_DIR)))
-    data["branding"] = json.loads((ROOT / "branding.example.json").read_text())
+    data["branding"] = json.loads((ROOT / "branding.example.json").read_text(encoding="utf-8"))
     for name in ("report.html.j2", "report.md.j2"):
         result = env.get_template(name).render(data=data)
         assert "29 FAILED" in result and "Unranked" in result
@@ -118,7 +118,7 @@ def test_unknown_occupancy_is_labelled_without_a_fake_percentage():
     data = report_data()
     data["occupancy"] = {"source": "Staged PMS calendar", "forward_days": 3,
         "forward_pct": None, "unknown_days": 1, "upcoming_reservations": "n/a"}
-    data["branding"] = json.loads((ROOT / "branding.example.json").read_text())
+    data["branding"] = json.loads((ROOT / "branding.example.json").read_text(encoding="utf-8"))
     env = Environment(loader=FileSystemLoader(str(rr.TEMPLATES_DIR)))
     for name in ("report.html.j2", "report.md.j2"):
         result = env.get_template(name).render(data=data)
@@ -134,9 +134,9 @@ def test_rendered_copy_and_machine_notes_follow_punctuation_rule(tmp_path):
     subprocess.run([sys.executable, str(ROOT / "scripts/render_report.py"),
         "--data", str(tmp_path / "result.json"), "--listing-slug", "cabin",
         "--date", "2026-09-20", "--out-base", str(tmp_path / "reports")], check=True,
-        capture_output=True, text=True)
+        capture_output=True, text=True, encoding="utf-8")
     for name in ("report.html", "report.md", "paste-block.txt"):
-        assert "\u2014" not in (tmp_path / "reports/cabin/2026-09-20" / name).read_text()
+        assert "\u2014" not in (tmp_path / "reports/cabin/2026-09-20" / name).read_text(encoding="utf-8")
 
 
 def test_failed_artifacts_cannot_reenter_a_report(tmp_path):
@@ -160,7 +160,7 @@ def test_report_rejects_another_listing_or_dates_workdir(tmp_path, mismatch):
     run = subprocess.run([sys.executable, str(ROOT / "scripts/render_report.py"),
         "--data", str(tmp_path / "result.json"), "--workdir", str(tmp_path),
         "--listing-slug", "cabin", "--date", "2026-09-20",
-        "--out-base", str(tmp_path / "reports")], capture_output=True, text=True)
+        "--out-base", str(tmp_path / "reports")], capture_output=True, text=True, encoding="utf-8")
     assert run.returncode != 0 and "match" in run.stderr
     assert not (tmp_path / "reports").exists()
 
@@ -176,7 +176,7 @@ def test_history_record_rejects_invalid_or_mismatched_run(tmp_path, invalid):
     (tmp_path / "result.json").write_text(json.dumps(data))
     run = subprocess.run([sys.executable, str(ROOT / "scripts/memory.py"), "record",
         "--result", str(tmp_path / "result.json"), "--history", str(tmp_path / "history.jsonl"),
-        "--out", str(tmp_path / "record.json")], capture_output=True, text=True)
+        "--out", str(tmp_path / "record.json")], capture_output=True, text=True, encoding="utf-8")
     assert run.returncode != 0
     assert not (tmp_path / "history.jsonl").exists()
     assert not (tmp_path / "record.json").exists()
@@ -215,8 +215,8 @@ def test_competitor_titles_are_evidence_and_stay_verbatim(tmp_path):
     subprocess.run([sys.executable, str(ROOT / "scripts/render_report.py"),
         "--data", str(tmp_path / "result.json"), "--workdir", str(tmp_path),
         "--listing-slug", "cabin", "--date", "2026-09-20",
-        "--out-base", str(tmp_path / "reports")], check=True, capture_output=True, text=True)
-    md = (tmp_path / "reports/cabin/2026-09-20/report.md").read_text()
+        "--out-base", str(tmp_path / "reports")], check=True, capture_output=True, text=True, encoding="utf-8")
+    md = (tmp_path / "reports/cabin/2026-09-20/report.md").read_text(encoding="utf-8")
     assert "Lakeview Cabin — Hot Tub" in md, "competitor title was rewritten"
     assert "Relax. Unwind." in md, "agent copy must still follow the rule"
 
@@ -253,8 +253,8 @@ def test_machine_notes_from_disk_follow_punctuation_rule(tmp_path):
     subprocess.run([sys.executable, str(ROOT / "scripts/render_report.py"),
         "--data", str(tmp_path / "result.json"), "--workdir", str(tmp_path),
         "--listing-slug", "cabin", "--date", "2026-09-20",
-        "--out-base", str(tmp_path / "reports")], check=True, capture_output=True, text=True)
+        "--out-base", str(tmp_path / "reports")], check=True, capture_output=True, text=True, encoding="utf-8")
     for name in ("report.md", "report.html"):
-        text = (tmp_path / "reports/cabin/2026-09-20" / name).read_text()
+        text = (tmp_path / "reports/cabin/2026-09-20" / name).read_text(encoding="utf-8")
         assert "—" not in text and "No map photo. Create one." in text
         assert "cross-check" not in text, "an unsupplied cross-check must not render"

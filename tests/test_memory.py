@@ -223,7 +223,7 @@ def test_unparseable_lines_are_never_dropped():
         h.write_text("{ corrupt line\n" + json.dumps(_rec()) + "\n"
                      + json.dumps(_rec()) + "\n", encoding="utf-8")
         mem.append_local(_rec(ale_total=4.0), h)
-        raw = h.read_text().splitlines()
+        raw = h.read_text(encoding="utf-8").splitlines()
         assert "{ corrupt line" in raw, "a corrupt line was silently discarded"
         assert len(raw) == 2, f"expected corrupt line + 1 collapsed row, got {raw}"
         assert json.loads(raw[1])["ale_total"] == 4.0
@@ -244,7 +244,7 @@ def test_history_write_is_atomic_no_partial_file():
         h = Path(tmp) / "history.jsonl"
         mem.append_local(_rec("boho", "2026-01-01"), h)
         mem.append_local(_rec("boho", "2026-02-01"), h)
-        original = h.read_text()
+        original = h.read_text(encoding="utf-8")
         real = mem._atomic_write_lines
 
         def boom(path, lines):
@@ -253,7 +253,7 @@ def test_history_write_is_atomic_no_partial_file():
         try:
             with contextlib.suppress(OSError):
                 mem.append_local(_rec("boho", "2026-03-01"), h)
-            assert h.read_text() == original, "history was damaged by a failed write"
+            assert h.read_text(encoding="utf-8") == original, "history was damaged by a failed write"
         finally:
             mem._atomic_write_lines = real
         assert len(list(Path(tmp).glob("*.tmp"))) == 0, "temp file left behind"

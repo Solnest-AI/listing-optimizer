@@ -140,7 +140,7 @@ def test_total_scoring_failure_preserves_actual_usage(monkeypatch, tmp_path):
         "--out", str(tmp_path / "scores.json"), "--no-cache"])
     with pytest.raises(SystemExit):
         ap.main()
-    result = json.loads((tmp_path / "scores.json").read_text())
+    result = json.loads((tmp_path / "scores.json").read_text(encoding="utf-8"))
     assert result["usage"]["api_calls"] == 1
     assert result["usage"]["totalTokenCount"] == 300
 
@@ -152,7 +152,7 @@ def test_photo_limit_discloses_unassessed_gallery(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "argv", ["analyze_photos.py", "--photos", str(tmp_path / "images.json"),
         "--out", str(tmp_path / "scores.json"), "--limit", "5", "--no-cache"])
     ap.main()
-    result = json.loads((tmp_path / "scores.json").read_text())
+    result = json.loads((tmp_path / "scores.json").read_text(encoding="utf-8"))
     assert result["gallery_count"] == 10 and result["not_submitted_count"] == 5
     assert "5 not assessed" in result["coverage_note"]
 
@@ -178,7 +178,7 @@ def test_no_key_writes_a_usable_fallback_instead_of_dying(monkeypatch, tmp_path)
     for var in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"):
         monkeypatch.delenv(var, raising=False)
     assert _run_main(monkeypatch, tmp_path) != 0
-    m = json.loads((tmp_path / ap.FALLBACK_MANIFEST).read_text())
+    m = json.loads((tmp_path / ap.FALLBACK_MANIFEST).read_text(encoding="utf-8"))
     assert [p["order"] for p in m["photos"]] == [0, 1, 2]
     assert all(Path(p["local_path"]).read_bytes() == b"image" for p in m["photos"])
     assert "subject_kind" in m["schema"]["required"] and m["rubric"] == ap.RUBRIC
@@ -194,7 +194,7 @@ def test_agent_scores_complete_the_ranking_with_the_same_rules(monkeypatch, tmp_
             for i in range(3)]
     (tmp_path / ap.AGENT_SCORES).write_text(json.dumps({"data": rows}))
     assert _run_main(monkeypatch, tmp_path) == 0
-    out = json.loads((tmp_path / "photo_scores.json").read_text())
+    out = json.loads((tmp_path / "photo_scores.json").read_text(encoding="utf-8"))
     assert out["scored_count"] == 3 and out["scored_by"] == {"gemini": 0, "claude_vision": 3}
     assert out["hero"] == 0 and len(out["top5_beats"]) == 3
     assert "Claude-vision" in out["coverage_note"]
@@ -206,7 +206,7 @@ def test_gemini_outage_falls_back_only_for_the_failed_photos(monkeypatch, tmp_pa
     monkeypatch.setenv("GEMINI_API_KEY", "fake-test-key")
     transport(monkeypatch, transform=lambda x: {**x, "technical": 9} if x.get("order") == 1 else x)
     assert _run_main(monkeypatch, tmp_path) == 0
-    m = json.loads((tmp_path / ap.FALLBACK_MANIFEST).read_text())
+    m = json.loads((tmp_path / ap.FALLBACK_MANIFEST).read_text(encoding="utf-8"))
     assert [p["order"] for p in m["photos"]] == [1], "only the unscored photo needs the fallback"
 
 

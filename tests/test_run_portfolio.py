@@ -69,7 +69,7 @@ def test_one_failure_does_not_stop_the_portfolio(tmp_path, monkeypatch, capsys):
     assert by["a-house"]["ready_to_write"] and by["c-house"]["ready_to_write"]
     assert not by["b-house"]["ready_to_write"]
     assert report["totals"] == {"airroi_calls": 3, "gemini_requests": 15, "gemini_tokens": 300}
-    assert json.loads((tmp_path / "state/slugs.json").read_text())["id-a-house"] == "a-house"
+    assert json.loads((tmp_path / "state/slugs.json").read_text(encoding="utf-8"))["id-a-house"] == "a-house"
     assert "WRITER QUEUE (2 of 3)" in capsys.readouterr().out
 
 

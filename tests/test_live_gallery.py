@@ -133,7 +133,7 @@ def test_agent_staged_live_gallery_becomes_the_images(tmp_path, monkeypatch):
     (tmp_path / "live_gallery.json").write_text(json.dumps(GOOD))
     status, detail = rp.live_gallery_step(tmp_path, "111")
     assert status == "ok" and "agent-staged" in detail
-    im = json.loads((tmp_path / "images.json").read_text())
+    im = json.loads((tmp_path / "images.json").read_text(encoding="utf-8"))
     assert im["_source"]["kind"] == "live_airbnb" and [d["order"] for d in im["data"]] == [1, 2]
 
 
@@ -150,7 +150,7 @@ def test_failed_fetch_falls_back_without_touching_images(tmp_path, monkeypatch):
     status, detail = rp.live_gallery_step(tmp_path, "111",
                                           runner=lambda cmd, label: (False, "live gallery: exit 1 - nope"))
     assert status == "skipped" and "PMS gallery" in detail
-    assert json.loads((tmp_path / "images.json").read_text()) == {"data": []}
+    assert json.loads((tmp_path / "images.json").read_text(encoding="utf-8")) == {"data": []}
 
 
 def test_invalid_staged_gallery_is_not_used(tmp_path, monkeypatch):
@@ -369,7 +369,7 @@ def test_pipeline_uses_a_complete_airroi_gallery(tmp_path):
     _stage_pms(tmp_path, 54)
     (tmp_path / "comps.json").write_text(json.dumps({"subject_listing": _airroi_subject(32)}))
     status, detail = rp.airroi_gallery_step(tmp_path)
-    im = json.loads((tmp_path / "images.json").read_text())
+    im = json.loads((tmp_path / "images.json").read_text(encoding="utf-8"))
     assert status == "ok" and im["_source"]["provider"] == "airroi" and len(im["data"]) == 32
 
 
@@ -377,7 +377,7 @@ def test_pipeline_keeps_the_pms_gallery_when_airroi_saw_only_the_top_grid(tmp_pa
     _stage_pms(tmp_path, 47)
     (tmp_path / "comps.json").write_text(json.dumps({"subject_listing": _airroi_subject(5)}))
     status, detail = rp.airroi_gallery_step(tmp_path)
-    im = json.loads((tmp_path / "images.json").read_text())
+    im = json.loads((tmp_path / "images.json").read_text(encoding="utf-8"))
     assert status == "skipped" and "top 5" in detail and im["_source"]["kind"] == "pms"
 
 
@@ -421,7 +421,7 @@ def test_airroi_gallery_line_states_the_data_age(tmp_path):
     (tmp_path / "comps.json").write_text(json.dumps({"subject_listing": _airroi_subject(32),
                                                       "fetch": {"calls": 0, "path": "cache", "cache_age_days": 3.2}}))
     rp.airroi_gallery_step(tmp_path)
-    g = json.loads((tmp_path / "live_gallery.json").read_text())
+    g = json.loads((tmp_path / "live_gallery.json").read_text(encoding="utf-8"))
     assert g["fetched_at"] == "AirROI data cached 3.2 days ago"
 
 
@@ -449,7 +449,7 @@ def test_a_complete_airroi_gallery_replaces_a_partial_intellihost_one(tmp_path):
     assert rp.live_gallery_incomplete(tmp_path) is True
     (tmp_path / "comps.json").write_text(json.dumps({"subject_listing": _airroi_subject(42)}))
     status, _ = rp.airroi_gallery_step(tmp_path)
-    assert status == "ok" and json.loads((tmp_path / "live_gallery.json").read_text())["provider"] == "airroi"
+    assert status == "ok" and json.loads((tmp_path / "live_gallery.json").read_text(encoding="utf-8"))["provider"] == "airroi"
 
 
 def test_rankbreeze_keeps_guest_access_and_live_review_facts():

@@ -174,9 +174,9 @@ def test_memory_record_rehydrates_the_machine_blocks():
             [_sys.executable, str(root / "scripts" / "memory.py"), "record",
              "--result", str(d / "result.json"), "--workdir", str(d),
              "--no-local", "--out", str(d / "record.json")],
-            capture_output=True, text=True, cwd=str(root))
+            capture_output=True, text=True, encoding="utf-8", cwd=str(root))
         assert r.returncode == 0, f"record failed: {r.stderr[-400:]}"
-        rec = json.loads((d / "record.json").read_text())
+        rec = json.loads((d / "record.json").read_text(encoding="utf-8"))
         assert rec["photo_hero"] == 3, f"hero lost: {rec['photo_hero']}"
         assert rec["photo_top5"] == [3, 1, 2], f"top5 lost: {rec['photo_top5']}"
         assert rec["reshoot_count"] == 1, f"reshoot count lost: {rec['reshoot_count']}"
@@ -203,9 +203,9 @@ def test_memory_record_defaults_workdir_to_the_result_directory():
             [_sys.executable, str(root / "scripts" / "memory.py"), "record",
              "--result", str(d / "result.json"), "--no-local",
              "--out", str(d / "record.json")],
-            capture_output=True, text=True, cwd=str(root))
+            capture_output=True, text=True, encoding="utf-8", cwd=str(root))
         assert r.returncode == 0, r.stderr[-300:]
-        rec = json.loads((d / "record.json").read_text())
+        rec = json.loads((d / "record.json").read_text(encoding="utf-8"))
         assert rec["photo_hero"] == 3, "workdir default did not kick in"
 
 

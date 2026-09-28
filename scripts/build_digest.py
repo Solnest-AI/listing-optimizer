@@ -46,7 +46,7 @@ def _read(d: Path, name: str):
     if not p.exists():
         return None
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        return json.loads(p.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError) as e:
         print(f"[digest] WARNING: {name} is unreadable ({e}) — section omitted", file=sys.stderr)
         return None
@@ -111,7 +111,7 @@ CONFIG = Path(__file__).resolve().parent.parent / "config" / "properties.json"
 
 def _owner_notes(slug: str) -> list[str]:
     try:
-        cfg = json.loads(CONFIG.read_text(encoding="utf-8")).get(slug)
+        cfg = json.loads(CONFIG.read_text(encoding="utf-8-sig")).get(slug)
     except (OSError, ValueError, AttributeError):
         return []
     if not isinstance(cfg, dict):
@@ -336,7 +336,7 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
     fb = d / "photo_fallback.json"
     if fb.exists():
         try:
-            n = len(json.loads(fb.read_text(encoding="utf-8")).get("photos") or [])
+            n = len(json.loads(fb.read_text(encoding="utf-8-sig")).get("photos") or [])
         except (OSError, ValueError, AttributeError):
             n = "?"
         A(f"⚠️ PHOTO FALLBACK REQUIRED: {n} photo(s) have no score (Gemini unavailable or "
@@ -496,4 +496,6 @@ def main():
 
 
 if __name__ == "__main__":
+    import console
+    console.utf8_stdio()
     main()

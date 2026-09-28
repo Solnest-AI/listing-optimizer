@@ -42,7 +42,7 @@ _MONTH = {"01": "Jan", "02": "Feb", "03": "Mar", "04": "Apr", "05": "May", "06":
 
 
 def _load_days(path: Path) -> list[dict]:
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw = json.loads(path.read_text(encoding="utf-8-sig"))
     if isinstance(raw, dict):
         raw = (raw.get("data") or raw).get("days") or raw.get("days") or []
     return raw or []
@@ -203,4 +203,6 @@ def main():
 
 
 if __name__ == "__main__":
+    import console
+    console.utf8_stdio()
     main()

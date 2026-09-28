@@ -30,6 +30,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import claude_usage  # noqa: E402
+import console  # noqa: E402
 
 PY = sys.executable
 SLUGS = ROOT / "state" / "slugs.json"
@@ -45,7 +46,7 @@ def slugify(name: str) -> str:
 
 def _load(path: Path, default):
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return default
 
@@ -86,7 +87,7 @@ def discover(date: str, refresh: bool, runner=subprocess.run) -> list[dict]:
     if refresh or not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         r = runner([PY, "scripts/hospitable_api.py", "properties", "--out", str(path)],
-                   cwd=ROOT, capture_output=True, text=True)
+                   cwd=ROOT, capture_output=True, text=True, **console.TEXT)
         if r.returncode != 0 or not path.exists():
             raise SystemExit(f"[portfolio] could not list properties from Hospitable: "
                              f"{(r.stderr or r.stdout or '').strip()[-300:]}")
@@ -111,7 +112,7 @@ def listing_facts(wd: Path) -> dict:
         "quota_exhausted": usage.get("quota_exhausted"),
         "photos_pending": (wd / "photo_fallback.json").exists(),
         "has_digest": (wd / "digest.md").exists(),
-        "owner_notes_in_digest": "# OWNER NOTES" in ((wd / "digest.md").read_text(encoding="utf-8")
+        "owner_notes_in_digest": "# OWNER NOTES" in ((wd / "digest.md").read_text(encoding="utf-8-sig")
                                                      if (wd / "digest.md").exists() else ""),
     }
     rec["ready_to_write"] = rec["status"] in WRITABLE and rec["has_digest"] and not rec["photos_pending"]
@@ -149,7 +150,7 @@ def run(args, runner=subprocess.run) -> dict:
             cmd += ["--no-cache"] if args.no_cache else []
             print(f"[portfolio] {slug} ...", flush=True)
             t0 = time.time()
-            r = runner(cmd, cwd=ROOT, capture_output=True, text=True)
+            r = runner(cmd, cwd=ROOT, capture_output=True, text=True, **console.TEXT)
             log = ROOT / "output" / args.date / "_portfolio" / f"{slug}.log"
             log.parent.mkdir(parents=True, exist_ok=True)
             log.write_text((r.stdout or "") + (r.stderr or ""), encoding="utf-8")
@@ -215,7 +216,7 @@ def summary(args) -> Path:
              "Reports are drafts. Nothing was changed on any live listing."]
     if report.get("stopped"):
         lines.insert(2, f"STOPPED EARLY: {report['stopped']}\n")
-    out = Path.home() / "Desktop" / "Listing Optimizer" / "_portfolio" / args.date / "portfolio-summary.md"
+    out = console.desktop() / "Listing Optimizer" / "_portfolio" / args.date / "portfolio-summary.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
@@ -241,4 +242,5 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
+    console.utf8_stdio()
     raise SystemExit(main())

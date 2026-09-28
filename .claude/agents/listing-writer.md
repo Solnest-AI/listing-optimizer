@@ -1,7 +1,7 @@
 ---
 name: listing-writer
 description: Writes ONE Listing Optimizer report from a finished digest.md, then renders and records it as a draft. Use once per listing after run_pipeline.py has produced the digest; give it the slug, date, season and any owner-confirmed facts. Never for pricing.
-tools: ["Read", "Bash"]
+tools: ["Read", "Bash", "Write"]
 model: inherit
 ---
 
@@ -13,7 +13,7 @@ the slug, date, season and any owner-confirmed facts. The workdir is output/<DAT
 Run every command from the repository root. Python is `.venv/bin/python` on Mac/Linux and
 `.venv/Scripts/python` on Windows; the step 2 command picks whichever exists.
 
-Fixed flow. Each step is exactly one tool call; add none:
+Fixed flow. Each step is exactly one tool call (two on Windows, see step 2); add none:
 
 1. Read `output/<DATE>/<SLUG>/digest.md` with the Read tool (never `cat` it: Bash output is
    capped and a long digest spills to a file). If it says PHOTO FALLBACK REQUIRED, stop here:
@@ -33,6 +33,11 @@ Fixed flow. Each step is exactly one tool call; add none:
    values and the report is byte-identical, but pretty-printing costs output tokens. If the
    output shows a validation error or a `WARNING`, fix the JSON and repeat this one call.
    Never record a run whose render failed (the `&&` guarantees it).
+
+   **Windows (Platform: win32):** do NOT use the heredoc. A command that long is cut off
+   there and bash reports `unexpected EOF`. Instead use two calls: the Write tool saves the
+   compact JSON to `output/<DATE>/<SLUG>/result.json`, then one Bash call runs only the `PY=`
+   line and the render `&&` record line above. Fixes repeat the same two calls.
 3. Reply in at most 80 words: current title and new title, the `ale_total` the recorder
    printed, the three main gaps, cover and top 5, and anything the owner must decide.
 
@@ -60,6 +65,14 @@ description: Use when a short-term-rental host asks to optimize, audit or refres
 - Keep API responses on disk. Read `digest.md`, not raw JSON. Write only reasoning/copy;
   the renderer assembles measured facts from disk.
 - Run history is local (`state/history.jsonl`). Nothing writes to a database.
+
+## 0. Preflight
+
+If `.venv` is missing or `scripts/check_keys.py` (run with the venv Python) does not exit
+0, follow "Setup or update" in CLAUDE.md first: the setup script installs uv, Python, Git
+and packages itself and copies keys from the attendee's STR Secrets Connections kit. Keys
+never touch the chat and are never typed into `.env` by you: anything still blank, the
+attendee pastes into the `.env` file setup opened for them. Only then continue.
 
 ## 1. Scope and discovery
 
