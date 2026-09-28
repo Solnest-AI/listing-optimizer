@@ -39,7 +39,7 @@ def test_ttl_expiry_boundary():
         c.put("ns", "k", "v")
         # Backdate the entry 15 days — a 14-day TTL must treat it as a miss.
         p = c._path("ns")
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
         data["k"]["saved"] = (datetime.now(timezone.utc) - timedelta(days=15)).isoformat()
         p.write_text(json.dumps(data))
         assert c.get("ns", "k", 14) is None, "15d-old entry must expire under a 14d TTL"
@@ -96,7 +96,7 @@ def test_eviction_keeps_newest():
         c = _fresh_cache(Path(tmp))
         for i in range(5):
             c.put("ns", f"k{i}", i, max_entries=3)
-        remaining = json.loads(c._path("ns").read_text())
+        remaining = json.loads(c._path("ns").read_text(encoding="utf-8"))
         assert len(remaining) <= 3
         assert "k4" in remaining, "the newest entry must survive eviction"
 

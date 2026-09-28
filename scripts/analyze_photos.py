@@ -120,7 +120,7 @@ def load_gemini_key() -> str | None:
 
 # ── Photo input normalization ─────────────────────────────────────────
 def load_photos(path: Path) -> list[dict]:
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw = json.loads(path.read_text(encoding="utf-8-sig"))
     items = raw.get("data") if isinstance(raw, dict) else raw
     if not isinstance(items, list):
         raise ValueError("photos must be a list or a data list")
@@ -146,7 +146,7 @@ def load_photos(path: Path) -> list[dict]:
 def load_source(path: Path) -> dict:
     """Which gallery the photos came from (live Airbnb or the PMS copy), from images.json."""
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return {"kind": "pms", "provider": "unknown"}
     src = raw.get("_source") if isinstance(raw, dict) else None
@@ -613,7 +613,7 @@ def load_agent_scores(path: Path, photos: list[dict]) -> tuple[list[dict], list[
     if not path.exists():
         return [], []
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError) as e:
         return [], [f"{path.name} unreadable ({e})"]
     rows = raw.get("data") if isinstance(raw, dict) else raw
@@ -799,4 +799,6 @@ def main():
 
 
 if __name__ == "__main__":
+    import console
+    console.utf8_stdio()
     main()

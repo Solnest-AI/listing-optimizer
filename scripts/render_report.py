@@ -29,11 +29,12 @@ from jinja2 import Environment, FileSystemLoader
 
 import ale
 import artifacts
+import console
 import listing_gaps
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = ROOT / ".claude" / "skills" / "listing-optimizer" / "output-templates"
-DEFAULT_OUT_BASE = Path.home() / "Desktop" / "Listing Optimizer"
+DEFAULT_OUT_BASE = console.desktop() / "Listing Optimizer"
 SLUG_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
 # Strict scan for paste content: no price words at all. Deliberately does NOT match bare
@@ -145,7 +146,7 @@ def gallery_orders(workdir: Path) -> set | None:
     src = workdir / "images.json"
     if not src.exists() or artifacts.excluded(workdir, "images.json"):
         return None
-    raw = json.loads(src.read_text(encoding="utf-8"))
+    raw = json.loads(src.read_text(encoding="utf-8-sig"))
     items = raw.get("data") if isinstance(raw, dict) else raw
     return {p.get("order") for p in items or [] if isinstance(p, dict) and type(p.get("order")) is int}
 
@@ -295,7 +296,7 @@ def merge_machine_blocks(data: dict, workdir: Path) -> list[str]:
         if not src.exists():
             continue
         try:
-            block = shape(json.loads(src.read_text(encoding="utf-8")))
+            block = shape(json.loads(src.read_text(encoding="utf-8-sig")))
             if key not in VERBATIM_BLOCKS:
                 block = normalize_prose(block)
         except (OSError, ValueError, AttributeError, TypeError) as e:
@@ -453,7 +454,7 @@ def main():
         date.fromisoformat(args.date)
         if not SLUG_RE.fullmatch(args.listing_slug):
             raise ValueError("invalid listing slug")
-        data = normalize_prose(json.loads(Path(args.data).read_text(encoding="utf-8")))
+        data = normalize_prose(json.loads(Path(args.data).read_text(encoding="utf-8-sig")))
         validate_result(data)
         if data.get("run_date") != args.date or data["listing"].get("slug", args.listing_slug) != args.listing_slug:
             raise ValueError("result listing/date do not match the requested output")
@@ -490,7 +491,7 @@ def main():
     bpath = Path(args.branding)
     if not bpath.exists():
         bpath = ROOT / "branding.example.json"
-    data["branding"] = json.loads(bpath.read_text(encoding="utf-8"))
+    data["branding"] = json.loads(bpath.read_text(encoding="utf-8-sig"))
 
     # Templates end in .html.j2, which select_autoescape(["html"]) does NOT match, so
     # decide autoescape by suffix: escape HTML, not Markdown.
@@ -527,4 +528,5 @@ def main():
 
 
 if __name__ == "__main__":
+    console.utf8_stdio()
     main()

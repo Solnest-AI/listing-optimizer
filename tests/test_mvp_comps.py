@@ -40,7 +40,7 @@ def test_shared_cache_contains_only_price_free_comp_data(monkeypatch, tmp_path):
         return [raw(123)], {"calls": 1, "path": "coords", "fallback_used": False}
     monkeypatch.setattr(ac, "fetch_comps", fetch)
     asyncio.run(pc._run(args()))
-    serialized = "".join(p.read_text() for p in tmp_path.glob("*.json"))
+    serialized = "".join(p.read_text(encoding="utf-8") for p in tmp_path.glob("*.json"))
     assert "98765" not in serialized and "ttm_adr" not in serialized
     result = asyncio.run(pc._run(args()))
     assert result["fetch"]["calls"] == 0
@@ -101,7 +101,7 @@ def test_subject_listing_is_kept_from_the_comps_call_without_pricing(monkeypatch
     assert s["amenities"] == ["Wifi", "Dryer"] and s["num_reviews"] == 155 and s["guest_favorite"] is True
     assert s["superhost"] is True
     assert [c["listing_id"] for c in r["top_comps"]] == [456], "subject must still be excluded from comps"
-    blob = str(r) + "".join(p.read_text() for p in tmp_path.glob("*.json"))
+    blob = str(r) + "".join(p.read_text(encoding="utf-8") for p in tmp_path.glob("*.json"))
     assert "55555" not in blob and "cleaning_fee" not in blob and "min_nights" not in blob
     # A cached rerun still carries the subject listing, with zero paid calls.
     r2 = asyncio.run(pc._run(args(exclude_listing_id="123")))

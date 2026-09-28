@@ -74,25 +74,27 @@ The rules below are the skill's own files, copied verbatim.
 def build() -> str:
     parts = [HEADER]
     for src in SOURCES:
-        rel = src.relative_to(ROOT)
-        parts.append(f"\n<!-- BEGIN {rel} -->\n{src.read_text(encoding='utf-8').rstrip()}\n<!-- END {rel} -->\n")
+        rel = src.relative_to(ROOT).as_posix()
+        parts.append(f"\n<!-- BEGIN {rel} -->\n{src.read_text(encoding='utf-8-sig').rstrip()}\n<!-- END {rel} -->\n")
     return "".join(parts)
 
 
 def main(argv: list[str]) -> int:
     text = build()
     if "--check" in argv:
-        current = AGENT.read_text(encoding="utf-8") if AGENT.exists() else ""
+        current = AGENT.read_text(encoding="utf-8-sig") if AGENT.exists() else ""
         if current != text:
             print(f"{AGENT.relative_to(ROOT)} is stale: run scripts/build_writer_agent.py", file=sys.stderr)
             return 1
         print("listing-writer agent is up to date")
         return 0
     AGENT.parent.mkdir(parents=True, exist_ok=True)
-    AGENT.write_text(text, encoding="utf-8")
+    AGENT.write_text(text, encoding="utf-8", newline="\n")
     print(f"wrote {AGENT.relative_to(ROOT)} ({len(text)} chars)")
     return 0
 
 
 if __name__ == "__main__":
+    import console
+    console.utf8_stdio()
     raise SystemExit(main(sys.argv[1:]))

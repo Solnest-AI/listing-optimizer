@@ -99,7 +99,7 @@ def test_corrupt_subject_run_exits_nonzero_with_no_traceback():
         (Path(tmp) / "subject.json").write_text("{ broken", encoding="utf-8")
         r = subprocess.run([sys.executable, str(ROOT / "scripts" / "run_pipeline.py"),
                             "--slug", "t", "--date", "2026-09-20", "--workdir", tmp],
-                           capture_output=True, text=True, cwd=str(ROOT))
+                           capture_output=True, text=True, encoding="utf-8", cwd=str(ROOT))
         assert r.returncode == 1, f"expected exit 1, got {r.returncode}"
         assert "Traceback" not in r.stdout + r.stderr, "leaked a traceback to the user"
         assert "not valid JSON" in r.stdout, "the failure reason must be in the summary"
@@ -114,10 +114,10 @@ def test_healthy_staged_run_exits_zero_and_builds_a_digest():
         r = subprocess.run([sys.executable, str(ROOT / "scripts" / "run_pipeline.py"),
                             "--slug", "t", "--date", "2026-09-20", "--workdir", tmp,
                             "--skip", "comps,photos,reviews"],
-                           capture_output=True, text=True, cwd=str(ROOT))
+                           capture_output=True, text=True, encoding="utf-8", cwd=str(ROOT))
         assert r.returncode == 0, f"expected exit 0, got {r.returncode}: {r.stdout[-400:]}"
         assert (Path(tmp) / "digest.md").exists(), "digest must be built"
-        assert "Cozy Cabin" in (Path(tmp) / "digest.md").read_text(), "subject missing from digest"
+        assert "Cozy Cabin" in (Path(tmp) / "digest.md").read_text(encoding="utf-8"), "subject missing from digest"
         assert "3BR/2.5BA/8g" in r.stdout, "derived params should be visible in the summary"
 
 
@@ -129,7 +129,7 @@ def test_summary_never_dumps_raw_json():
         r = subprocess.run([sys.executable, str(ROOT / "scripts" / "run_pipeline.py"),
                             "--slug", "t", "--date", "2026-09-20", "--workdir", tmp,
                             "--skip", "comps,photos,reviews"],
-                           capture_output=True, text=True, cwd=str(ROOT))
+                           capture_output=True, text=True, encoding="utf-8", cwd=str(ROOT))
         assert len(r.stdout) < 4000, f"summary is {len(r.stdout)} chars — too chatty"
         assert '"capacity"' not in r.stdout, "raw subject JSON leaked into the summary"
 
@@ -176,7 +176,7 @@ def test_unscoped_reservation_pull_is_not_trusted():
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp)
         (d / "reservations.json").write_text(_json.dumps({"data": [{}, {}, {}]}), encoding="utf-8")
-        rj = _json.loads((d / "reservations.json").read_text())
+        rj = _json.loads((d / "reservations.json").read_text(encoding="utf-8"))
         pull = rj.get("_pull") or {}
         trusted = bool(pull.get("scoped") or (pull.get("window_start") and pull.get("window_end")))
         assert not trusted, "an unscoped staged pull must not be trusted as an upcoming count"

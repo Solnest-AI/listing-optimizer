@@ -40,7 +40,7 @@ CADENCE = {
 def _load() -> dict:
     """Fail-open: a corrupt state file means 'never refreshed', not a failed run."""
     try:
-        data = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        data = json.loads(STATE_PATH.read_text(encoding="utf-8-sig"))
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
         return {}
@@ -61,7 +61,7 @@ def _applied_dates(listing: str) -> set[str] | None:
     A mark made on a draft run is not a refresh: boho-bliss showed 0/7 items due for marks
     made on 2026-09-20, a draft whose title never reached Airbnb."""
     try:
-        lines = HISTORY_PATH.read_text(encoding="utf-8").splitlines()
+        lines = HISTORY_PATH.read_text(encoding="utf-8-sig").splitlines()
     except OSError:
         return None
     seen, applied = False, set()
@@ -146,4 +146,6 @@ def main():
 
 
 if __name__ == "__main__":
+    import console
+    console.utf8_stdio()
     main()

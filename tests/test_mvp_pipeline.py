@@ -50,7 +50,7 @@ def test_staged_calendar_never_calls_hospitable(monkeypatch, tmp_path):
         return real_run(cmd, label)
     monkeypatch.setattr(rp, "run", local_only)
     assert invoke(monkeypatch, tmp_path, "--skip", "photos,comps,memory") == 0
-    occ = json.loads((tmp_path / "occupancy.json").read_text())
+    occ = json.loads((tmp_path / "occupancy.json").read_text(encoding="utf-8"))
     assert occ["report_block"]["source"] == "Staged PMS calendar"
     assert occ["report_block"]["upcoming_reservations"] == "n/a"
 
@@ -71,10 +71,10 @@ def test_no_cache_and_studio_reach_paid_steps(monkeypatch, tmp_path):
     assert invoke(monkeypatch, tmp_path, "--no-cache", "--skip", "memory,calendar,reviews") == 0
     assert {label for label, _ in calls} == {"comps", "photos"}
     assert all("--no-cache" in cmd for _, cmd in calls)
-    manifest = json.loads((tmp_path / "pipeline_status.json").read_text())
+    manifest = json.loads((tmp_path / "pipeline_status.json").read_text(encoding="utf-8"))
     assert manifest["status"] == "degraded"
     assert {"comps.json", "photo_scores.json"} <= set(manifest["excluded_files"])
-    assert "stale" not in (tmp_path / "digest.md").read_text()
+    assert "stale" not in (tmp_path / "digest.md").read_text(encoding="utf-8")
 
 
 def test_failed_refresh_cannot_optimize_old_subject(monkeypatch, tmp_path):
@@ -87,7 +87,7 @@ def test_failed_refresh_cannot_optimize_old_subject(monkeypatch, tmp_path):
     monkeypatch.setattr(rp, "run", offline)
     assert invoke(monkeypatch, tmp_path, "--refresh", "--property-id", "test-id") == 1
     assert "photos" not in labels and "comps" not in labels
-    state = json.loads((tmp_path / "pipeline_status.json").read_text())
+    state = json.loads((tmp_path / "pipeline_status.json").read_text(encoding="utf-8"))
     assert state["status"] == "failed"
     assert "subject.json" in state["excluded_files"]
     # A plain retry must retain the invalidation, even if the old file is valid JSON.

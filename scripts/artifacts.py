@@ -24,7 +24,7 @@ def run_status(workdir: Path) -> dict:
     path = workdir / "pipeline_status.json"
     if not path.exists():
         return {}  # legacy/manually staged working directories
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(data, dict) or not isinstance(data.get("excluded_files"), list):
         raise ValueError("pipeline_status.json is invalid; rerun the pipeline")
     return data

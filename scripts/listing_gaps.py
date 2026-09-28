@@ -119,7 +119,7 @@ def _live_listing(workdir: Path) -> dict | None:
     src = workdir / "live_gallery.json"
     if not src.exists() or artifacts.excluded(workdir, "live_gallery.json"):
         return None
-    listing = json.loads(src.read_text(encoding="utf-8")).get("listing")
+    listing = json.loads(src.read_text(encoding="utf-8-sig")).get("listing")
     return listing if isinstance(listing, dict) else None
 
 

@@ -27,6 +27,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import artifacts
+import console
 import live_gallery
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -62,7 +63,7 @@ class Step:
 def run(cmd: list, label: str) -> tuple[bool, str]:
     """Run a child script. Returns (ok, last-meaningful-output-line)."""
     try:
-        p = subprocess.run([str(c) for c in cmd], capture_output=True, text=True,
+        p = subprocess.run([str(c) for c in cmd], capture_output=True, text=True, **console.TEXT,
                            cwd=str(ROOT), timeout=600, check=False)
     except subprocess.TimeoutExpired:
         return False, f"{label}: timed out after 600s; rerun to resume from cache"
@@ -104,7 +105,7 @@ def live_gallery_step(wd: Path, room_id, runner=None) -> tuple[str, str]:
         why = "no RankBreeze or IntelliHost connection" if room_id else "no Airbnb listing id in subject.json"
         return "skipped", f"{why}; {fallback}"
     try:
-        gallery = live_gallery.validate(json.loads(target.read_text(encoding="utf-8")))
+        gallery = live_gallery.validate(json.loads(target.read_text(encoding="utf-8-sig")))
     except (OSError, ValueError) as e:
         return "skipped", f"live_gallery.json is invalid ({str(e)[:80]}); {fallback}"
     artifacts.write_json(wd / "images.json", live_gallery.to_images(gallery))
@@ -128,7 +129,7 @@ def count_stays(rows, start: str, end: str) -> int:
 def comps_problem(wd: Path) -> str | None:
     """Zero comps is a data gap, not a pass (lakehouse-on-ness: 0 from coords and address)."""
     try:
-        c = json.loads((wd / "comps.json").read_text(encoding="utf-8"))
+        c = json.loads((wd / "comps.json").read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return None
     if not c.get("comp_count"):
@@ -139,7 +140,7 @@ def comps_problem(wd: Path) -> str | None:
 
 def live_gallery_incomplete(wd: Path) -> bool:
     try:
-        return json.loads((wd / "live_gallery.json").read_text(encoding="utf-8")).get("complete") is False
+        return json.loads((wd / "live_gallery.json").read_text(encoding="utf-8-sig")).get("complete") is False
     except (OSError, ValueError, AttributeError):
         return False
 
@@ -149,8 +150,8 @@ def airroi_gallery_step(wd: Path) -> tuple[str, str]:
     as the live gallery when nothing better supplied one. A top-grid-only list is not used as
     the gallery; the PMS copy keeps full coverage and AirROI still supplies copy/amenities."""
     try:
-        comps = json.loads((wd / "comps.json").read_text(encoding="utf-8"))
-        pms = json.loads((wd / "images.json").read_text(encoding="utf-8"))
+        comps = json.loads((wd / "comps.json").read_text(encoding="utf-8-sig"))
+        pms = json.loads((wd / "images.json").read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return "skipped", "no comps.json or images.json to compare"
     items = pms.get("data") if isinstance(pms, dict) else pms
@@ -176,7 +177,7 @@ def _tag_pms_images(path: Path, provider: str) -> None:
     """Label a PMS-sourced images.json so the digest and report can say which gallery the
     photo plan was built on."""
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return
     if isinstance(raw, dict) and not isinstance(raw.get("_source"), dict):
@@ -194,7 +195,7 @@ def subject_params(workdir: Path) -> dict:
     if not p.exists():
         return {}
     try:
-        raw = json.loads(p.read_text(encoding="utf-8"))
+        raw = json.loads(p.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError) as e:
         return {"_error": f"subject.json is not valid JSON ({str(e)[:90]}) — re-pull it "
                           f"with --refresh, or check what your PMS actually returned"}
@@ -298,7 +299,7 @@ def main():
             if (name in previous_status.get("excluded_files", [])
                     and (wd / name).stat().st_mtime_ns <= prior_stamp):
                 return False
-            value = json.loads((wd / name).read_text(encoding="utf-8"))
+            value = json.loads((wd / name).read_text(encoding="utf-8-sig"))
             return isinstance(value, (dict, list))
         except (OSError, ValueError):
             return False
@@ -366,7 +367,7 @@ def main():
         if ok:
             usable.add("channels.json")
             try:
-                ch = json.loads((wd / "channels.json").read_text(encoding="utf-8"))
+                ch = json.loads((wd / "channels.json").read_text(encoding="utf-8-sig"))
                 st.done(f"connected={ch.get('connected_platforms')} review-silent={ch.get('silent_channels')}")
             except (OSError, ValueError, AttributeError):
                 st.done(msg)
@@ -405,7 +406,7 @@ def main():
                               "reservations")
             if ok_r:
                 try:
-                    rj = json.loads((wd / "reservations.json").read_text(encoding="utf-8"))
+                    rj = json.loads((wd / "reservations.json").read_text(encoding="utf-8-sig"))
                     pull = rj.get("_pull") or {}
                     # Only trust the count when the window was actually scoped.
                     if pull.get("scoped") or (pull.get("window_start") and pull.get("window_end")):
@@ -435,7 +436,7 @@ def main():
     else:
         try:
             p = subprocess.run([PY, str(SCRIPTS / "memory.py"), "prior", "--listing", args.slug],
-                               capture_output=True, text=True, cwd=str(ROOT), timeout=30, check=True)
+                               capture_output=True, text=True, **console.TEXT, cwd=str(ROOT), timeout=30, check=True)
             rows = json.loads((p.stdout or "").strip() or "[]")
             if not isinstance(rows, list):
                 raise ValueError("history is not a list")
@@ -506,7 +507,7 @@ def main():
             st.fail(msg)
         else:
             try:
-                scores = json.loads((wd / "photo_scores.json").read_text(encoding="utf-8"))
+                scores = json.loads((wd / "photo_scores.json").read_text(encoding="utf-8-sig"))
                 by = scores.get("scored_by") or {}
                 detail = (f"{scores.get('scored_count')}/{scores.get('gallery_count', scores.get('submitted_count'))} "
                           f"gallery photos ranked; {(scores.get('usage') or {}).get('api_calls', '?')} "
@@ -561,4 +562,5 @@ def main():
 
 
 if __name__ == "__main__":
+    console.utf8_stdio()
     main()

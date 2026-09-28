@@ -139,7 +139,7 @@ def append_local(rec: dict, history_path: Path) -> str:
                 fh.write(payload + "\n")
             return "inserted"
 
-        existing = history_path.read_text(encoding="utf-8").splitlines() if history_path.exists() else []
+        existing = history_path.read_text(encoding="utf-8-sig").splitlines() if history_path.exists() else []
         out: list[str] = []
         status = "inserted"
         for line in existing:
@@ -166,7 +166,7 @@ def read_local(history_path: Path) -> list[dict]:
     if not history_path.exists():
         return []
     rows = []
-    for line in history_path.read_text(encoding="utf-8").splitlines():
+    for line in history_path.read_text(encoding="utf-8-sig").splitlines():
         if line.strip():
             try:
                 rows.append(json.loads(line))
@@ -210,7 +210,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     if args.cmd == "record":
-        result = json.loads(Path(args.result).read_text(encoding="utf-8"))
+        result = json.loads(Path(args.result).read_text(encoding="utf-8-sig"))
         wd = Path(args.workdir) if args.workdir else Path(args.result).parent
         if wd.is_dir():
             try:
@@ -239,4 +239,6 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    import console
+    console.utf8_stdio()
     raise SystemExit(main())

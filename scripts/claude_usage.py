@@ -33,7 +33,7 @@ def _first_prompt(rows: list[dict]) -> str:
 
 def agent_usage(path: Path) -> dict | None:
     try:
-        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8-sig").splitlines() if line.strip()]
     except (OSError, ValueError):
         return None
     usage, turns = {}, []
@@ -59,7 +59,7 @@ def writer_usage(slugs: list[str], date: str, cwd: Path, home: Path | None = Non
     root = project_dir(cwd, home)
     for meta in root.glob("*/subagents/agent-*.meta.json"):
         try:
-            if json.loads(meta.read_text(encoding="utf-8")).get("agentType") != "listing-writer":
+            if json.loads(meta.read_text(encoding="utf-8-sig")).get("agentType") != "listing-writer":
                 continue
         except (OSError, ValueError):
             continue

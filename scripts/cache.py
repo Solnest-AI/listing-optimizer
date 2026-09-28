@@ -41,7 +41,7 @@ def _path(namespace: str) -> Path:
 def _load(namespace: str) -> dict:
     p = _path(namespace)
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
+        data = json.loads(p.read_text(encoding="utf-8-sig"))
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
         return {}  # missing or corrupt == miss, never an error
