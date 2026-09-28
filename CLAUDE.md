@@ -17,36 +17,61 @@ Python scripts collect and validate evidence; the agent writes ALE + StoryBrand 
 
 ## Setup or update
 
-Run this before the first optimization in a session whenever `.venv` is missing or
-`scripts/check_keys.py` does not exit 0. The setup script installs what is missing; never
-send the user off to install Python, Git or packages by hand first.
+Trigger: "Set up the Listing Optimizer", the README's start line, or the first optimization
+in a session when `.venv` is missing or `scripts/check_keys.py` does not exit 0. The setup
+script installs what is missing; never send the user off to install Python, Git or packages
+by hand. You run every command yourself; the attendee never opens a terminal.
 
-1. Check the current folder and known install before cloning. Existing `.git`: inspect
-   status, preserve local edits, then `git pull --ff-only`. Never clone a second copy.
-   ZIP install: preserve local config/state and back up shipped files before converting
-   in place to git. Never remove the old folder as an update strategy.
-2. Run the setup script without prompts. It finds or installs Python 3.10+ and Git
-   (winget on Windows, Homebrew on Mac; a system approval prompt may appear on the user's
-   screen, so say so), creates or rebuilds `.venv`, installs `requirements.txt` plus
-   `requirements-dev.txt`, creates `.env` from `.env.example` only if absent, runs the
-   tests and checks each key with a free read-only request. It never overwrites keys or files.
-   - Windows (works from Bash or PowerShell):
-     `powershell -NoProfile -ExecutionPolicy Bypass -File setup.ps1 -NoPrompt -AutoInstall`
+### The credential contract (the same one as the STR Secrets Connections kit)
+
+- **NEVER ask for an API key in chat.** Not "paste it here", not "what's your key".
+- Never put a value into `.env` with the Edit or Write tools. `scripts/kit_link.py` copies
+  keys from the attendee's connections kit; anything still blank, the attendee pastes into
+  `.env` themselves after setup opens that file. You read `check_keys.py` output afterward;
+  you never type a secret.
+- A key pasted into chat by accident: one line, no lecture. Rotate it in the vendor's
+  dashboard and paste the new one into the file.
+
+### Steps
+
+1. Existing `.git`: inspect status, preserve local edits, then `git pull --ff-only`. Never
+   clone a second copy. ZIP install: preserve local config/state; convert in place to git
+   only if asked, never by deleting the folder.
+2. Run the setup script without prompts. It finds or installs uv and Python 3.13 (uv's own
+   installer, per user, no admin prompt; Python under `%USERPROFILE%\.uv\python`, where the
+   connections kit keeps it, because the desktop app is a Store app that redirects AppData
+   writes) and Git (winget, which may show one Windows approval prompt), builds `.venv`,
+   installs the requirements, creates `.env` from `.env.example` only if absent, links the
+   connections kit (step 3), runs the tests and checks each key with a free read-only
+   request. It never overwrites keys or files.
+   - Windows, from the Bash tool (Git Bash) or PowerShell:
+     `powershell.exe -NoProfile -ExecutionPolicy Bypass -File setup.ps1 -NoPrompt -AutoInstall`
    - Mac/Linux: `bash setup.sh --no-prompt --auto-install`
-   Exit 0: ready. Exit 2: read its `!!` lines and continue with step 3. Exit 1: show the
-   user its last lines and stop. If Git was just installed, tell the user to restart
-   Claude Code once setup finishes.
-3. For each key the output marks `!!`, ask the user for it, one at a time, with where to
-   get it: AirROI https://www.airroi.com/api/developer/activate, Gemini
+   Exit 0: ready. Exit 2: read its `!!` lines and continue with step 4. Exit 1: show the
+   user its last lines and stop. If the app's Auto mode blocks the command ("Blocked", "no
+   verdict"), that is the app's classifier, not the command: switch the session to Manual
+   and rerun. If Git was just installed, tell the user to restart Claude Code afterwards.
+3. The kit bridge. Setup runs `scripts/kit_link.py`, which finds the attendee's
+   `str-secrets-connections` folder (next to this one, Desktop, Documents, Downloads),
+   writes `SKILL_PATH_LISTING_OPTIMIZER=<this folder>` into the kit's `.env` (a path, not a
+   secret) so the kit's `fan-out-env.sh` keeps this folder in sync from now on, and merges
+   the kit's keys into `./.env` with the kit's rules (declared names only, non-blank only,
+   nothing removed, `HOSPITABLE_TOKEN` from `HOSPITABLE_API_KEY`). It never prints a value.
+   No kit found: ask where the connections folder is (a path) and run
+   `scripts/kit_link.py --kit <folder>` with the venv Python. No kit at all: the attendee
+   pastes keys straight into `.env` (step 4).
+4. Keys still blank after the link are blank in the kit too. Setup has opened `.env` in
+   Notepad or TextEdit. Tell the attendee which lines to fill and where each key comes from
+   (AirROI https://www.airroi.com/api/developer/activate, Gemini
    https://aistudio.google.com/apikey, Hospitable my.hospitable.com → Apps → API access →
-   Platform token (`HOSPITABLE_TOKEN`; alias `HOSPITABLE_API_KEY`; skip for other PMSs).
-   Put the pasted value on that key's line in `.env` with the Edit tool. Never echo it
-   back, log it or commit it. Then rerun `scripts/check_keys.py` with the venv Python
-   (Mac/Linux `.venv/bin/python`, Windows `.venv\Scripts\python`) until it exits 0.
-4. Other PMSs stage the documented JSON contract using their supported read tools. The
+   Platform token; other PMSs leave Hospitable blank). Wait for "saved", then rerun
+   `scripts/check_keys.py` with the venv Python (Windows `.venv\Scripts\python`, Mac
+   `.venv/bin/python`) until it exits 0. Mention once that pasting the same key into the
+   kit's `.env` and saying "Check my connections" there keeps the kit complete.
+5. Other PMSs stage the documented JSON contract using their supported read tools. The
    bundled `hospitable_api.py` implements read-only Hospitable collection.
-5. Tests do not verify live credentials; `check_keys.py` and the first pipeline run do.
-6. Optional branding: `branding.example.json` to `branding.json` only if absent.
+6. Tests do not verify live credentials; `check_keys.py` and the first pipeline run do.
+7. Optional branding: `branding.example.json` to `branding.json` only if absent.
    Per-listing configuration: `config/properties.example.json` to `config/properties.json`.
    Preserve `.env`, `config/`, `branding.json`, `state/`, and `output/` through upgrades.
 

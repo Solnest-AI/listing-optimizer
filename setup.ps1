@@ -1,15 +1,21 @@
-# Listing Optimizer - Windows setup. Double-click setup.cmd, or run:
-#   powershell -ExecutionPolicy Bypass -File setup.ps1
-# Claude Code runs it as:
-#   powershell -NoProfile -ExecutionPolicy Bypass -File setup.ps1 -NoPrompt -AutoInstall
-# Safe to rerun: keeps your existing .env keys, .venv, config, history and reports.
-# Exit codes: 0 ready, 1 stopped (see message), 2 finished but keys/tests need attention.
+# Listing Optimizer - Windows setup. Claude Code runs it for you:
+#   powershell.exe -NoProfile -ExecutionPolicy Bypass -File setup.ps1 -NoPrompt -AutoInstall
+# or double-click setup.cmd. Safe to rerun: keeps your .env keys, .venv, config, history, reports.
+# Exit codes: 0 ready, 1 stopped (see message), 2 finished but keys or tests need attention.
+#
+# Built to match the STR Secrets Connections kit (github.com/Solnest-AI/str-secrets-connections):
+#   * Python comes from uv, never winget and never the Microsoft Store shim. The Claude Code
+#     desktop app is a Store (MSIX) app that silently redirects AppData writes, so uv's Python
+#     lives under %USERPROFILE%\.uv\python, the same place the kit puts it.
+#   * Keys never touch the chat. They are copied from the kit (scripts\kit_link.py); anything
+#     still blank is pasted by the attendee into .env, which this script opens in Notepad.
 # Keep this file ASCII-only: Windows PowerShell 5.1 misreads UTF-8 without a BOM.
 
 param(
     [switch]$SkipTests,      # skip the ~30s test suite
     [switch]$NoPrompt,       # never ask questions (Claude Code / scripted runs)
-    [switch]$AutoInstall     # install missing Python/Git with winget without asking
+    [switch]$AutoInstall,    # install missing uv, Python and Git without asking
+    [string]$Kit = ''        # the STR Secrets Connections folder, if it is somewhere unusual
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,6 +24,7 @@ Set-Location -LiteralPath $Root
 $VenvPy = Join-Path $Root '.venv\Scripts\python.exe'
 $EnvFile = Join-Path $Root '.env'
 $Problems = New-Object System.Collections.Generic.List[string]
+$PyVersion = '3.13'
 
 function Step($n, $text) { Write-Host ""; Write-Host "[$n/6] $text" -ForegroundColor Cyan }
 function Ok($text)   { Write-Host "  OK  $text" -ForegroundColor Green }
@@ -30,6 +37,10 @@ function Ask($question) {
     if ($AutoInstall) { return $true }
     if ($NoPrompt) { return $false }
     return (Read-Host "$question [Y/n]") -notmatch '^[nN]'
+}
+function Refresh-Path {
+    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
+                [Environment]::GetEnvironmentVariable('Path', 'User')
 }
 function Get-Winget {
     # winget ships with Windows 11 but a damaged PATH can hide it; its home is fixed.
@@ -53,25 +64,46 @@ function Install-WithWinget($id, $extra) {
                 '--accept-package-agreements', '--accept-source-agreements')
     & $winget @common @extra
     if ($LASTEXITCODE -ne 0 -and $extra.Count -gt 0) {
-        # Some manifests have no per-user variant; retry without the scope switch.
         & $winget @common
     }
     Refresh-Path
 }
-function Refresh-Path {
-    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
-                [Environment]::GetEnvironmentVariable('Path', 'User')
-}
 
-# Returns the command (as an array) for a working Python 3.10+, or $null.
-# Skips the Microsoft Store "python" alias, which exists on every PC but is not Python.
-function Find-Python {
+# uv: on PATH, or where its installer and winget put it (the app's PATH is fixed at launch,
+# so a uv installed earlier today may be on disk but not on PATH yet).
+function Find-Uv {
+    $cmd = Get-Command uv -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    foreach ($p in @("$HOME\.local\bin\uv.exe", "$env:LOCALAPPDATA\Microsoft\WinGet\Links\uv.exe")) {
+        if (Test-Path $p) { return $p }
+    }
+    return $null
+}
+# The Python 3.13 uv can run right now, without downloading anything. Tries the attendee's
+# configured location first, then the kit's profile location.
+function Find-UvPython($uv) {
+    $homes = @()
+    if ($env:UV_PYTHON_INSTALL_DIR) { $homes += $env:UV_PYTHON_INSTALL_DIR }
+    $homes += "$env:USERPROFILE\.uv\python"
+    $homes += ''   # uv's own default
+    foreach ($h in $homes) {
+        $env:UV_PYTHON_INSTALL_DIR = $h
+        $env:UV_PYTHON_DOWNLOADS = 'never'
+        # No Select-Object in this pipeline: it ends the process early and corrupts $LASTEXITCODE.
+        try { $p = @(& $uv python find $PyVersion 2>$null) } catch { $p = @() }
+        $rc = $LASTEXITCODE
+        $env:UV_PYTHON_DOWNLOADS = $null
+        if ($rc -eq 0 -and $p.Count -gt 0 -and (Test-Path "$($p[0])".Trim())) { return "$($p[0])".Trim() }
+    }
+    $env:UV_PYTHON_INSTALL_DIR = $null
+    return $null
+}
+# A real system Python 3.10+, as a fallback when uv cannot be installed. Runs each candidate:
+# the Microsoft Store stub prints no version, so it is rejected here.
+function Find-SystemPython {
     $candidates = @(@('py', '-3'), @('python'), @('python3'))
-    # A python.org install that has not reached this process's PATH yet (fresh winget
-    # install, or 'Add to PATH' left unticked). Newest version first.
-    $dirs = @("$env:LOCALAPPDATA\Programs\Python", "$env:ProgramFiles", "${env:ProgramFiles(x86)}")
-    foreach ($dir in $dirs) {
-        if (-not ($dir -and (Test-Path $dir))) { continue }
+    foreach ($dir in @("$env:LOCALAPPDATA\Programs\Python", "$env:ProgramFiles")) {
+        if (-not (Test-Path $dir)) { continue }
         Get-ChildItem $dir -Directory -Filter 'Python3*' -ErrorAction SilentlyContinue |
             Sort-Object Name -Descending | ForEach-Object {
                 $exe = Join-Path $_.FullName 'python.exe'
@@ -81,10 +113,6 @@ function Find-Python {
     foreach ($c in $candidates) {
         $exe = $c[0]
         if (-not (Get-Command $exe -ErrorAction SilentlyContinue)) { continue }
-        # Do not skip WindowsApps by path: the python.org install manager puts a real py.exe
-        # there too. The Store stub prints no version, so running it is the reliable test.
-        # No quotes inside the -c code: PowerShell 5.1 strips embedded quotes from native args.
-        # No Select-Object -First: it kills the process and corrupts $LASTEXITCODE.
         $args_ = @($c | Select-Object -Skip 1) + @('-c', 'import sys; print(sys.version_info[0], sys.version_info[1])')
         try { $ver = @(& $exe @args_ 2>$null) } catch { continue }
         if ($LASTEXITCODE -ne 0 -or $ver.Count -eq 0) { continue }
@@ -98,95 +126,93 @@ Write-Host ""
 Write-Host "  Listing Optimizer setup" -ForegroundColor White
 Write-Host "  Folder: $Root"
 
-# ---------------------------------------------------------------- 1. Python
-Step 1 'Python 3.10 or newer'
-$py = Find-Python
-if (-not $py) {
-    Warn 'Python 3.10+ was not found.'
-    if (Ask '  Install Python 3.12 now with winget?') {
-        Install-WithWinget 'Python.Python.3.12' @('--scope', 'user')
-        $py = Find-Python
+# ---------------------------------------------------------------- 1. uv + Python
+Step 1 "Python $PyVersion through uv (never the Microsoft Store)"
+$uv = Find-Uv
+if (-not $uv -and (Ask '  Install uv now (Astral installer, no admin prompt)?')) {
+    Write-Host '  Installing uv into your user folder...'
+    try {
+        $env:UV_NO_MODIFY_PATH = $null
+        Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression | Out-Null
+    } catch { Warn "uv installer failed: $($_.Exception.Message)" }
+    $uv = Find-Uv
+}
+$PyExe = $null; $PyCmd = $null
+if ($uv) {
+    Ok ("uv " + ((& $uv --version 2>$null) -replace '^uv ', ''))
+    $PyExe = Find-UvPython $uv
+    if (-not $PyExe -and (Ask "  Install Python $PyVersion through uv now?")) {
+        $pyHome = if ($env:UV_PYTHON_INSTALL_DIR) { $env:UV_PYTHON_INSTALL_DIR } else { "$env:USERPROFILE\.uv\python" }
+        Write-Host "  Installing Python $PyVersion under $pyHome ..."
+        $env:UV_PYTHON_INSTALL_DIR = $pyHome
+        & $uv python install $PyVersion | Out-Null
+        if (-not $env:LO_NO_PERSIST) { setx UV_PYTHON_INSTALL_DIR $pyHome | Out-Null }   # same pin as the kit
+        $PyExe = Find-UvPython $uv
     }
-    if (-not $py) {
-        Fail ("Install Python from https://www.python.org/downloads/ (tick 'Add python.exe to PATH' " +
-              "on the first screen), then run setup again.")
+    if ($PyExe) { Ok "Python $PyVersion (uv): $PyExe" }
+    else { Warn "uv could not provide Python $PyVersion." }
+} else {
+    Warn 'uv is not installed and could not be installed.'
+}
+if (-not $PyExe) {
+    $sys = Find-SystemPython
+    if ($sys) {
+        $PyCmd = $sys
+        Ok ("falling back to system Python " + (& $sys[0] @($sys | Select-Object -Skip 1) -c 'import sys; print(sys.version.split()[0])'))
+    } else {
+        Fail ("No Python. Check your internet connection and run setup again (it installs uv and Python " +
+              "$PyVersion itself), or install Python from https://www.python.org/downloads/ and rerun.")
     }
 }
-$pyExe = $py[0]; $pyArgs = @($py | Select-Object -Skip 1)
-Ok ("Python " + (& $pyExe @pyArgs -c 'import sys; print(sys.version.split()[0])'))
 
 # ---------------------------------------------------------------- 2. Git
 Step 2 'Git for Windows (Claude Code uses its Git Bash)'
 if (Get-Command git -ErrorAction SilentlyContinue) {
     Ok ((git --version) -replace '^git version ', 'Git ')
 } else {
-    Warn 'Git is not installed. Claude Code on Windows needs it.'
+    Warn 'Git is not installed. Claude Code on Windows works better with it.'
     if (Ask '  Install Git now with winget?') { Install-WithWinget 'Git.Git' @() }
     if (Get-Command git -ErrorAction SilentlyContinue) { Ok 'Git installed (restart Claude Code so it can see it)' }
     else { $Problems.Add('Install Git from https://git-scm.com/download/win, then restart Claude Code.') }
 }
 
-# ---------------------------------------------------------------- 3. Virtual environment
+# ---------------------------------------------------------------- 3. venv + packages
 Step 3 'Python environment and packages (first time takes a minute)'
 if ((Test-Path '.venv') -and -not (Test-Path $VenvPy)) {
-    # A .venv copied from a Mac has bin/ instead of Scripts\ and cannot run here.
     Warn '.venv is not a Windows environment (copied from a Mac?). Rebuilding it.'
     Remove-Item -Recurse -Force '.venv'
 }
 if (-not (Test-Path $VenvPy)) {
-    & $pyExe @pyArgs -m venv .venv
+    if ($uv -and $PyExe) { & $uv venv .venv --python $PyExe --quiet }
+    else { & $PyCmd[0] @($PyCmd | Select-Object -Skip 1) -m venv .venv }
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $VenvPy)) { Fail 'Could not create .venv.' }
 }
-& $VenvPy -m pip install --disable-pip-version-check -q -r requirements.txt -r requirements-dev.txt
+if ($uv) { & $uv pip install --python $VenvPy --quiet -r requirements.txt -r requirements-dev.txt }
+else { & $VenvPy -m pip install --disable-pip-version-check -q -r requirements.txt -r requirements-dev.txt }
 if ($LASTEXITCODE -ne 0) { Fail 'Package install failed. Check your internet connection and run setup again.' }
-Ok 'Packages installed in .venv'
+Ok "Packages installed in .venv (Python $(& $VenvPy -c 'import sys; print(sys.version.split()[0])'))"
 
-# ---------------------------------------------------------------- 4. .env keys
-Step 4 'API keys (.env)'
+# ---------------------------------------------------------------- 4. keys
+Step 4 'API keys: copied from your STR Secrets Connections kit'
 if (-not (Test-Path $EnvFile)) {
     Copy-Item '.env.example' $EnvFile
     Ok 'Created .env from .env.example'
 } else {
     Ok 'Using your existing .env (nothing overwritten)'
 }
-
-function Get-EnvValue($name) {
-    foreach ($line in [IO.File]::ReadAllLines($EnvFile)) {
-        if ($line -match "^\s*$name\s*=\s*(.*)$") { return $Matches[1].Trim().Trim('"').Trim("'") }
-    }
-    return ''
-}
-function Set-EnvValue($name, $value) {
-    $lines = [IO.File]::ReadAllLines($EnvFile)
-    $found = $false
-    for ($i = 0; $i -lt $lines.Length; $i++) {
-        if ($lines[$i] -match "^\s*$name\s*=") { $lines[$i] = "$name=$value"; $found = $true }
-    }
-    if (-not $found) { $lines += "$name=$value" }
-    # UTF-8 without BOM, LF endings: what python-dotenv and the Mac expect.
-    [IO.File]::WriteAllText($EnvFile, (($lines -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
+$kitArgs = @()
+if ($Kit) { $kitArgs = @('--kit', $Kit) }
+& $VenvPy scripts\kit_link.py @kitArgs
+$kitRc = $LASTEXITCODE
+if ($kitRc -eq 1) { Warn 'No kit found. Set it up first (github.com/Solnest-AI/str-secrets-connections), or paste keys into .env by hand.' }
+if ($kitRc -ne 0 -and -not $env:LO_NO_OPEN) {
+    # The credential contract: keys go into the file, never into the chat and never through
+    # a prompt. Open the file so the attendee pastes what is missing and saves.
+    Write-Host '  Opening .env in Notepad: paste each missing key after its = sign, save, then say "saved".'
+    Start-Process notepad.exe -ArgumentList "`"$EnvFile`""
 }
 
-$keys = @(
-    @{ Name = 'AIRROI_API_KEY';   Why = 'competitor comps';  Where = 'https://www.airroi.com/api/developer/activate' },
-    @{ Name = 'GEMINI_API_KEY';   Why = 'photo scoring';     Where = 'https://aistudio.google.com/apikey' },
-    @{ Name = 'HOSPITABLE_TOKEN'; Why = 'your listings (Hospitable users only; press Enter to skip)';
-       Where = 'my.hospitable.com > Apps > API access > Platform token' }
-)
-foreach ($k in $keys) {
-    $have = Get-EnvValue $k.Name
-    if (-not $have -and $k.Name -eq 'HOSPITABLE_TOKEN') { $have = Get-EnvValue 'HOSPITABLE_API_KEY' }
-    if ($have) { Ok "$($k.Name) is set"; continue }
-    if ($NoPrompt) { Warn "$($k.Name) is empty ($($k.Why))"; continue }
-    Write-Host ""
-    Write-Host "  $($k.Name) - $($k.Why)"
-    Write-Host "  Get it here: $($k.Where)"
-    $val = (Read-Host '  Paste it and press Enter').Trim().Trim('"').Trim("'")
-    if ($val) { Set-EnvValue $k.Name $val; Ok "$($k.Name) saved to .env" }
-    else { Warn "$($k.Name) skipped. You can add it to .env later and rerun setup." }
-}
-
-# ---------------------------------------------------------------- 5. Tests
+# ---------------------------------------------------------------- 5. tests
 Step 5 'Self-test'
 if ($SkipTests) {
     Warn 'Skipped (-SkipTests)'
@@ -200,12 +226,12 @@ if ($SkipTests) {
     }
 }
 
-# ---------------------------------------------------------------- 6. Key check
+# ---------------------------------------------------------------- 6. key check
 Step 6 'Checking your keys (free, read-only)'
 & $VenvPy scripts\check_keys.py
-if ($LASTEXITCODE -ne 0) { $Problems.Add('Fix the keys marked !! in .env (open it with Notepad), then rerun setup.') }
+if ($LASTEXITCODE -ne 0) { $Problems.Add('Paste the keys marked !! into .env (never into the chat), save, then rerun setup or say "saved".') }
 
-# ---------------------------------------------------------------- Done
+# ---------------------------------------------------------------- done
 Write-Host ""
 if ($Problems.Count -eq 0) {
     Write-Host '  ALL SET.' -ForegroundColor Green
@@ -214,7 +240,7 @@ if ($Problems.Count -eq 0) {
     foreach ($p in $Problems) { Write-Host "   - $p" -ForegroundColor Yellow }
 }
 Write-Host ""
-Write-Host '  Next: open Claude Code in this folder and say:'
+Write-Host '  Next: in Claude Code, in this folder, say:'
 Write-Host '    "Optimize my <listing name> for <season>."'
 Write-Host "  Reports land on your Desktop in the 'Listing Optimizer' folder."
 Write-Host ""

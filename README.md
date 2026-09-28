@@ -9,17 +9,28 @@ Hospitable collection is built in. Other PMSs can supply the same staged JSON co
 through their read tools. This MVP does not ship a hosted UI or automatic PMS publishing.
 It never writes pricing, calendars, availability, fees or stay restrictions.
 
-## Start here
+## Start here (summit morning, start to finish)
 
-Open Claude Code in your existing Listing Optimizer folder and say:
+You need two things: the **Claude Code desktop app**, and the
+[STR Secrets Connections kit](https://github.com/Solnest-AI/str-secrets-connections) set up
+on this computer (that is where your keys live; "Set up my connections" in that folder if
+you have not done it yet). Nothing else to install by hand.
+
+1. Download this folder (the zip, or `git clone`) somewhere easy, like your Desktop.
+2. Open it in the Claude Code desktop app.
+3. Say: **"Set up the Listing Optimizer."**
+
+Claude runs the bundled setup script (`setup.ps1` on Windows, `setup.sh` on Mac). It installs
+uv, Python and Git if they are missing, builds the environment, finds your connections kit,
+copies your keys over from it, runs the tests and checks each key with a free read-only
+request. Your keys never go through the chat: if one is still missing, Claude opens `.env`
+for you, you paste it there, save, and say "saved". From then on the kit's own
+"Check my connections" keeps this folder in sync too.
+
+Already have this folder set up from before? Say instead:
 
 > Review the setup instructions in CLAUDE.md, configure any missing dependencies,
 > and run the tests. Preserve my existing keys, settings, history and reports.
-
-Claude runs the bundled setup script (`setup.ps1` on Windows, `setup.sh` on Mac), which
-installs Python and Git if they are missing, builds the environment, runs the tests and
-checks your keys. It then asks you for any key that is still missing. Nothing to install
-by hand first: Claude Code is the only prerequisite.
 
 Then ask **"Optimize my [listing] for [season]."** The agent discovers your properties,
 collects evidence, writes the copy and renders the reports. It asks only for missing
@@ -37,11 +48,12 @@ python3 -m venv .venv
 
 Use Python 3.10+.
 
-**Windows:** double-click `setup.cmd`. It finds (or offers to install) Python and Git,
-builds `.venv`, creates `.env` and asks for any missing keys, runs the tests and checks
-each key with a free read-only request. Rerun it any time; it keeps existing keys and files.
-Use `.venv\Scripts\python` wherever these docs say `.venv/bin/python`.
-`scripts/check_keys.py` rechecks keys on any OS.
+Setting up without Claude: run `setup.sh` (Mac) or double-click `setup.cmd` (Windows). Both
+use uv for Python (never the Microsoft Store's `python` stub), copy keys from the
+connections kit if it is on this computer (`scripts/kit_link.py`, or `--kit <folder>` when
+it lives somewhere unusual), open `.env` for anything still blank, run the tests and check
+each key. Rerun any time; existing keys and files are kept. Use `.venv\Scripts\python`
+wherever these docs say `.venv/bin/python`. `scripts/check_keys.py` rechecks keys on any OS.
 
 Create `.env` from `.env.example` **only if it does not already exist**, then configure:
 

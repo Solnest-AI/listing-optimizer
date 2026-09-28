@@ -69,8 +69,10 @@ description: Use when a short-term-rental host asks to optimize, audit or refres
 ## 0. Preflight
 
 If `.venv` is missing or `scripts/check_keys.py` (run with the venv Python) does not exit
-0, follow "Setup or update" in CLAUDE.md first: the setup script installs missing Python,
-Git and packages itself, and missing keys are collected one at a time. Only then continue.
+0, follow "Setup or update" in CLAUDE.md first: the setup script installs uv, Python, Git
+and packages itself and copies keys from the attendee's STR Secrets Connections kit. Keys
+never touch the chat and are never typed into `.env` by you: anything still blank, the
+attendee pastes into the `.env` file setup opened for them. Only then continue.
 
 ## 1. Scope and discovery
 
