@@ -189,10 +189,21 @@ $kitOut = @(& $VenvPy scripts\kit_link.py @kitArgs)
 $kitRc = $LASTEXITCODE
 $kitOut | ForEach-Object { Write-Host $_ }
 $KitDir = ''
-foreach ($line in $kitOut) {
-    if ($line -match '^\[kit\] (.+)$' -and (Test-Path (Join-Path $Matches[1] 'fan-out-env.sh'))) { $KitDir = $Matches[1]; break }
+if ($kitRc -eq 0 -or $kitRc -eq 2) {
+    # Only a successful link prints the kit's path; never parse the explanation lines as paths.
+    foreach ($line in $kitOut) {
+        if ($line -match '^\[kit\] ([A-Za-z]:\\.+)$') {
+            $cand = $Matches[1]
+            try { if (Test-Path -LiteralPath ([IO.Path]::Combine($cand, 'fan-out-env.sh'))) { $KitDir = $cand; break } } catch { }
+        }
+    }
 }
 if ($kitRc -eq 1) { Warn 'No kit found: standalone install. Keys live in this folder''s .env only (github.com/Solnest-AI/str-secrets-connections has the kit).' }
+if ($kitRc -eq 3) {
+    # A kit exists but was never set up: keys belong in it, not here. Nothing to open yet.
+    Warn 'Your connections kit is not set up yet, so there are no keys to copy.'
+    $Problems.Add('Open the str-secrets-connections folder in Claude Code, say "Set up my connections", then run this setup again.')
+}
 # Where a missing or rejected key gets pasted. With a kit linked, the kit's .env is the one
 # place keys live and the next run copies it over; a value pasted here would be overwritten.
 $EnvToOpen = $EnvFile; $EnvLabel = 'this folder''s .env'
@@ -216,7 +227,7 @@ if ($SkipTests) {
 # ---------------------------------------------------------------- 6. key check
 Step 6 'Checking your keys (free, read-only)'
 & $VenvPy scripts\check_keys.py
-if ($LASTEXITCODE -ne 0) {
+if ($LASTEXITCODE -ne 0 -and $kitRc -ne 3) {
     $Problems.Add("Paste each key marked !! into $EnvLabel (never into the chat), save, then rerun setup or say `"saved`".")
     $NeedEnv = $true
 }

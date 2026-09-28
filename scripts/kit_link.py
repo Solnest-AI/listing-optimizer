@@ -15,7 +15,8 @@ the kit's .env. This script is the same bridge, driven from this side:
      aliased from HOSPITABLE_API_KEY
 
 It never prints a value. Exit 0: every required key is filled. Exit 2: kit found, some
-declared keys still blank (setup opens ./.env for the attendee). Exit 1: no kit found.
+declared keys still blank (setup opens the kit's .env for the attendee). Exit 1: no kit
+found (standalone). Exit 3: a kit was found but is not set up yet (no .env); nothing written.
 
 usage: kit_link.py [--kit PATH] [--no-register]
 """
@@ -25,6 +26,7 @@ import argparse
 import contextlib
 import os
 import re
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -83,14 +85,43 @@ def merge(target: Path, updates: dict[str, str]) -> list[str]:
         if name not in last:
             out.append(f"{name}={value}")
             written.append(name)
-    target.write_text("\n".join(out) + "\n", encoding="utf-8", newline="\n")
-    with contextlib.suppress(OSError):
-        os.chmod(target, 0o600)
+    # Atomic: this may be the kit's master key file. Write beside it, then replace in one step,
+    # so an interruption can never leave it truncated.
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".lo-env-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("\n".join(out) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        with contextlib.suppress(OSError):
+            os.chmod(tmp, 0o600)
+        os.replace(tmp, target)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
     return written
 
 
 def is_kit(d: Path) -> bool:
     return all((d / m).is_file() for m in KIT_MARKERS)
+
+
+def is_set_up(d: Path) -> bool:
+    """A kit the attendee has run "Set up my connections" in: its .env exists. A fresh unzip
+    has only .env.template, and linking to it would create a bogus .env there."""
+    return (d / ".env").is_file()
+
+
+def _rank(d: Path) -> tuple:
+    """Best kit first: the one already registered to THIS folder, then any set-up kit (newest
+    .env), then bare downloads."""
+    env = d / ".env"
+    if not env.is_file():
+        return (0, 0, 0.0)
+    registered = read_env(env).get(SKILL_PATH_VAR, "")
+    mine = 0
+    with contextlib.suppress(OSError, ValueError):
+        mine = int(bool(registered) and Path(registered).resolve() == ROOT.resolve())
+    return (1, mine, env.stat().st_mtime)
 
 
 def _walk(root: Path, depth: int):
@@ -130,9 +161,7 @@ def find_kit(explicit: str | None) -> Path | None:
             uniq.append(f)
     if not uniq:
         return None
-    # a kit the attendee has actually set up beats an unused download
-    uniq.sort(key=lambda d: ((d / ".env").exists(), (d / ".env").stat().st_mtime if (d / ".env").exists() else 0),
-              reverse=True)
+    uniq.sort(key=_rank, reverse=True)
     return uniq[0]
 
 
@@ -147,7 +176,12 @@ def link(kit: Path, register: bool = True) -> tuple[list[str], list[str]]:
             kit_values[ours] = kit_values[theirs]
     names = declared(EXAMPLE)
     updates = {n: kit_values[n] for n in names if kit_values.get(n)}
-    filled = merge(ENV, updates) if updates else []
+    # The kit says this attendee is not on Hospitable (they switched PMS): a token left here from
+    # before would be probed and fail. Blank it; a blank is not a secret.
+    pms = kit_values.get("STACK_PMS", "").strip().lower()
+    if pms and pms != "hospitable" and "HOSPITABLE_TOKEN" in names and read_env(ENV).get("HOSPITABLE_TOKEN"):
+        updates["HOSPITABLE_TOKEN"] = ""
+    filled = [n for n in merge(ENV, updates) if updates[n]] if updates else []
     if register:
         merge(kit_env, {SKILL_PATH_VAR: ROOT.as_posix()})
     ours = read_env(ENV)
@@ -165,6 +199,12 @@ def main(argv: list[str] | None = None) -> int:
         print("[kit] no STR Secrets Connections folder found (looked next to this folder, on the Desktop, "
               "in Documents and Downloads). Run again with --kit <folder>, or paste keys into .env by hand.")
         return 1
+    if not is_set_up(kit):
+        # Exit 3, not 1: a kit exists, so this is NOT a standalone install and keys must not be
+        # pasted into this folder's .env. Setup stops and sends the attendee to the kit first.
+        print(f"[kit] found the kit at {kit}, but it is not set up yet (no .env there). Open that folder "
+              "in Claude Code and say \"Set up my connections\" first, then run this setup again.")
+        return 3
     filled, blank = link(kit, register=not args.no_register)
     print(f"[kit] {kit}")
     if not args.no_register:

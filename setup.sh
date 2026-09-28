@@ -11,6 +11,21 @@
 set -u
 cd "$(dirname "$0")" || exit 1
 
+# Windows (Git Bash is Claude Code's Bash tool there): this script would look for a Mac-style
+# .venv/bin, decide the Windows .venv is broken and delete it. Hand off to setup.ps1 instead,
+# translating the flags.
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*)
+  args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --skip-tests) args+=(-SkipTests) ;; --no-prompt) args+=(-NoPrompt) ;;
+      --auto-install) args+=(-AutoInstall) ;; --kit) args+=(-Kit "$(cygpath -w "$2")"); shift ;;
+    esac
+    shift
+  done
+  exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$PWD/setup.ps1")" "${args[@]}"
+esac
+
 SKIP_TESTS=0; NO_PROMPT=0; AUTO_INSTALL=0; KIT=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -92,8 +107,14 @@ if [ -n "$KIT" ]; then kit_out=$(.venv/bin/python scripts/kit_link.py --kit "$KI
 rc=$?
 printf '%s\n' "$kit_out"
 KITDIR=""
-while IFS= read -r p; do [ -f "$p/fan-out-env.sh" ] && { KITDIR="$p"; break; }; done < <(printf '%s\n' "$kit_out" | sed -n 's/^\[kit\] \(.*\)$/\1/p')
+# Only a successful link (0 or 2) prints the kit's path; never parse explanation lines as paths.
+[ $rc -eq 0 ] || [ $rc -eq 2 ] && while IFS= read -r p; do [ -f "$p/fan-out-env.sh" ] && { KITDIR="$p"; break; }; done < <(printf '%s\n' "$kit_out" | sed -n 's/^\[kit\] \(.*\)$/\1/p')
 [ $rc -eq 1 ] && warn "No kit found: standalone install. Keys live in this folder's .env only (github.com/Solnest-AI/str-secrets-connections has the kit)."
+if [ $rc -eq 3 ]; then
+  # A kit exists but was never set up: keys belong in it, not here. Nothing to open yet.
+  warn 'Your connections kit is not set up yet, so there are no keys to copy.'
+  PROBLEMS+=('Open the str-secrets-connections folder in Claude Code, say "Set up my connections", then run this setup again.')
+fi
 # Where a missing or rejected key gets pasted. With a kit linked, the kit's .env is the one
 # place keys live and the next run copies it over; a value pasted here would be overwritten.
 ENV_TO_OPEN="$PWD/.env"; ENV_LABEL="this folder's .env"
@@ -112,7 +133,7 @@ fi
 
 # ---------------------------------------------------------------- 6. key check
 step 6 'Checking your keys (free, read-only)'
-if ! .venv/bin/python scripts/check_keys.py; then
+if ! .venv/bin/python scripts/check_keys.py && [ $rc -ne 3 ]; then
   PROBLEMS+=("Paste each key marked !! into $ENV_LABEL (never into the chat), save, then rerun setup or say \"saved\".")
   NEED_ENV=1
 fi

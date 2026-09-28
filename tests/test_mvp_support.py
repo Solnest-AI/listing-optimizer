@@ -258,3 +258,21 @@ def test_machine_notes_from_disk_follow_punctuation_rule(tmp_path):
         text = (tmp_path / "reports/cabin/2026-09-20" / name).read_text(encoding="utf-8")
         assert "—" not in text and "No map photo. Create one." in text
         assert "cross-check" not in text, "an unsupplied cross-check must not render"
+
+
+def test_a_rejected_password_is_never_echoed(tmp_path):
+    """Codex review: the renderer's error printed the live password it rejected."""
+    import render_report as rr
+    try:
+        rr._check_contact("other_notes", "Wi-Fi password: PineCone2024")
+    except ValueError as e:
+        assert "PineCone2024" not in str(e) and "password" in str(e)
+    else:
+        raise AssertionError("a password in listing copy must be rejected")
+
+
+def test_digest_redacts_door_codes_from_live_guest_access():
+    import secrets_scan
+    text, n = secrets_scan.redact("Self check-in. Door code is 4821, Wi-Fi password: PineCone2024.")
+    assert n == 2 and "4821" not in text and "PineCone2024" not in text
+    assert secrets_scan.redact("The Wi-Fi password is in the welcome book.")[1] == 0

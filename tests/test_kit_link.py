@@ -70,6 +70,46 @@ def test_duplicate_names_are_set_on_the_line_that_wins(world):
     assert kl.read_env(lo / ".env")["AIRROI_API_KEY"] == "air-secret"
 
 
+def test_an_unset_up_kit_is_refused_and_left_untouched(world, capsys):
+    """A fresh unzip has no .env; linking must not create one there, and it is exit 3 (a kit
+    exists, so this is not a standalone install and setup must not open this folder's .env)."""
+    lo, kit = world
+    (kit / ".env").unlink()
+    assert kl.main(["--kit", str(kit)]) == 3
+    assert not (kit / ".env").exists()
+    assert "not set up yet" in capsys.readouterr().out
+
+
+def test_the_kit_registered_to_this_folder_beats_a_newer_one(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    lo = home / "Desktop" / "lo"
+    lo.mkdir(parents=True)
+    mine, other = home / "Documents" / "kit", home / "Downloads" / "kit"
+    for d in (mine, other):
+        d.mkdir(parents=True)
+        (d / "CONNECTIONS.md").write_text("x", encoding="utf-8")
+        (d / "fan-out-env.sh").write_text("x", encoding="utf-8")
+    (mine / ".env").write_text(f"SKILL_PATH_LISTING_OPTIMIZER={lo.as_posix()}\n", encoding="utf-8")
+    import os
+    import time
+    (other / ".env").write_text("AIRROI_API_KEY=x\n", encoding="utf-8")
+    later = time.time() + 60
+    os.utime(other / ".env", (later, later))
+    monkeypatch.setattr(kl.Path, "home", staticmethod(lambda: home))
+    monkeypatch.setattr(kl, "ROOT", lo)
+    monkeypatch.delenv("STR_SECRETS_KIT", raising=False)
+    assert kl.find_kit(None) == mine.resolve()
+
+
+def test_switching_away_from_hospitable_blanks_the_old_token(world):
+    lo, kit = world
+    (lo / ".env").write_text("HOSPITABLE_TOKEN=old-hosp\n", encoding="utf-8")
+    (kit / ".env").write_text("STACK_PMS=hostaway\nAIRROI_API_KEY=a\nGEMINI_API_KEY=g\n", encoding="utf-8")
+    filled, blank = kl.link(kit)
+    assert kl.read_env(lo / ".env")["HOSPITABLE_TOKEN"] == ""
+    assert "HOSPITABLE_TOKEN" not in filled and "HOSPITABLE_TOKEN" in blank
+
+
 def test_main_never_prints_a_value_and_reports_required_gaps(world, capsys):
     lo, kit = world
     rc = kl.main(["--kit", str(kit)])

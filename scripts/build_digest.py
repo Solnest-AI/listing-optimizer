@@ -20,6 +20,7 @@ from pathlib import Path
 import ale
 import amenities
 import artifacts
+import secrets_scan
 from listing_gaps import DISCLOSURES
 from listing_gaps import registration_only as _registration_only
 
@@ -235,8 +236,12 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
             A("guest_access (live Airbnb): EMPTY. The field holds only a registration number, so guests "
               "see no Guest access section. Write one.")
         elif access:
+            # Door codes and passwords never reach Claude's context or the report.
+            access, hidden = secrets_scan.redact(access)
             A("guest_access (live Airbnb): " + access[:600]
-              + "  (check the headline copy does not contradict this)")
+              + "  (check the headline copy does not contradict this)"
+              + (f"  ({hidden} code/password redacted: tell the owner to move it to the check-in "
+                 "message, never the public listing)" if hidden else ""))
         A(f"copy_source: LIVE Airbnb listing via {live_provider} (title/summary/description above are what "
           f"guests read now)"
           + (f". PMS copy differs from live Airbnb: {', '.join(drift)}. Say so; edits made only in the PMS "

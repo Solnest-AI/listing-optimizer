@@ -64,11 +64,15 @@ def assign_slugs(properties: list[dict], known: dict[str, str], config: dict) ->
     pinned = {v["property_id"]: k for k, v in config.items()
               if isinstance(v, dict) and isinstance(v.get("property_id"), str)}
     out = {}
-    for p in properties:
-        slug = pinned.get(p["id"]) or known.get(p["id"])
-        if slug:
-            out[p["id"]] = slug
-    used = set(out.values())
+    used: set[str] = set()
+    # Two properties can never share a slug (one workdir, one report). Config pins are reserved
+    # first so they always win; then remembered slugs; a clash falls through to a fresh slug.
+    for source in (pinned, known):
+        for p in properties:
+            slug = source.get(p["id"])
+            if p["id"] not in out and slug and slug not in used:
+                out[p["id"]] = slug
+                used.add(slug)
     for p in properties:
         if p["id"] in out:
             continue
@@ -140,7 +144,9 @@ def run(args, runner=subprocess.run) -> dict:
         rec = {"slug": slug, "property_id": p["id"], "name": p.get("name"),
                "season": cfg.get("season"), "owner_facts": len(cfg.get("owner_facts") or [])}
         before = listing_facts(wd)
-        if args.resume and before["status"] in WRITABLE and not before["photos_pending"]:
+        # A degraded run with a failed step (AirROI down, network blip) is retried, not resumed.
+        if (args.resume and before["status"] in WRITABLE and not before["photos_pending"]
+                and not before["failed_steps"]):
             rec.update(before, action="resumed (already gathered today)", seconds=0)
         elif stop:
             rec.update(before, action=f"not started: {stop}", seconds=0)
@@ -169,7 +175,8 @@ def run(args, runner=subprocess.run) -> dict:
     every = sorted(earlier + listings, key=lambda r: r["slug"])
     totals = {k: sum(r.get(k) or 0 for r in every) for k in ("airroi_calls", "gemini_requests", "gemini_tokens")}
     report = {"date": args.date, "generated": datetime.now().isoformat(timespec="seconds"),
-              "listings": every, "totals": totals, "stopped": stop}
+              "listings": every, "totals": totals, "stopped": stop,
+              "this_run": [x["slug"] for x in listings]}
     _write_json(path, report)
     queue = [r for r in listings if r["ready_to_write"]]
     print(f"\nWRITER QUEUE ({len(queue)} of {len(listings)}): one listing-writer agent per line")
@@ -236,9 +243,14 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if args.summary:
         summary(args)
-    else:
-        run(args)
-    return 0
+        return 0
+    report = run(args)
+    # Exit 2 = partial: something failed, was held or the run stopped for quota. The WRITER QUEUE
+    # printed above is still valid for every listing in it; the rest need a --resume later.
+    mine = set(report.get("this_run") or [])
+    this_run = [r for r in report["listings"] if r.get("slug") in mine and not r.get("action", "").startswith("resumed")]
+    partial = report.get("stopped") or any(not r.get("ready_to_write") or r.get("failed_steps") for r in this_run)
+    return 2 if partial else 0
 
 
 if __name__ == "__main__":

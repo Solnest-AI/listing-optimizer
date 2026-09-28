@@ -31,6 +31,7 @@ import ale
 import artifacts
 import console
 import listing_gaps
+from secrets_scan import SECRET_RE
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = ROOT / ".claude" / "skills" / "listing-optimizer" / "output-templates"
@@ -93,14 +94,8 @@ LOWER_SECTIONS = (("guest_access", "Guest access", 600), ("other_notes", "Other 
 # Where each section goes in Airbnb's editor, for the paste block.
 EDITOR_FIELD = {"other_notes": "Other details to note", "neighborhood": "Location > Neighborhood description",
                 "getting_around": "Location > Getting around"}
-# Guest access invites these: codes and passwords belong in the check-in message, never the
-# public listing. "The Wi-Fi password is in the welcome book" is fine; "password: Pine123" is not.
-SECRET_RE = re.compile(r"""(?ix)
-    \b(?:door|entry|lock\s?box|keypad|gate|garage|building|lock)\s+code\s*(?:is|:|=)?\s*\#?\d{3,}
-  | \bcode\s*(?::|=|\bis\b)\s*\#?\d{3,}
-  | \bpass(?:word|code)?\s*(?::|=|\bis\b)\s*
-    (?!(?:in|on|at|with|inside|posted|printed|sent|shared|provided|available|the|your|our|a)\b)\S
-""")
+# Guest access invites codes and passwords; the pattern is shared with the digest.
+
 # Airbnb's content policy bans text that identifies a listing's location. A number, one to
 # three capitalized words and a street suffix; "5 Minute Drive" and "5 Star Place" are not.
 ADDRESS_RE = re.compile(
@@ -118,7 +113,8 @@ def _check_contact(name: str, text: str) -> None:
                          f"contact details in listing copy")
     m = SECRET_RE.search(text)
     if m:
-        raise ValueError(f"optimized.{name} contains an access code or password ('{m.group(0)}'); "
+        # Never echo the matched text: it is a live door code or password.
+        raise ValueError(f"optimized.{name} contains an access code or password; "
                          f"those go in the check-in message, never the public listing")
     m = ADDRESS_RE.search(text)
     if m:

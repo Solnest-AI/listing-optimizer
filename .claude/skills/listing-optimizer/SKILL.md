@@ -50,7 +50,10 @@ every listed property, one failure never stopping the rest, and prints a WRITER 
 one `listing-writer` per queued line (a few at once), passing the season; owner facts reach
 the digest from `config/properties.json` (`season`, `owner_facts`, `notes`). A writer that
 replies `PHOTO FALLBACK REQUIRED` needs section 2b first. A Gemini daily quota stops new
-listings; rerun with `--resume` after midnight Pacific. Finish with
+listings; rerun with `--resume` after midnight Pacific. Exit 2 means partial (a listing failed,
+was held, or the run stopped): the WRITER QUEUE it printed is still valid, so launch those
+writers, and `--resume` retries the rest, including any listing with a failed step. Run one
+portfolio at a time; two at once can overwrite each other's `portfolio.json`. Finish with
 `scripts/run_portfolio.py --date <DATE> --summary` (per-listing AirROI, Gemini and Claude
 tokens, written to the Desktop). Slugs stay fixed per property in `state/slugs.json`.
 

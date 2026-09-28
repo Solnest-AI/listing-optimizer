@@ -23,8 +23,9 @@ you have not done it yet). Nothing else to install by hand.
 Claude runs the bundled setup script (`setup.ps1` on Windows, `setup.sh` on Mac). It installs
 uv, Python and Git if they are missing, builds the environment, finds your connections kit,
 copies your keys over from it, runs the tests and checks each key with a free read-only
-request. Your keys never go through the chat: if one is still missing, Claude opens `.env`
-for you, you paste it there, save, and say "saved". From then on the kit's own
+request. Your keys never go through the chat, and your connections kit's `.env` is the one
+place they live: if one is missing or rejected, Claude opens the kit's `.env`, you paste it
+there, save, and say "saved"; setup copies it over. From then on the kit's own
 "Check my connections" keeps this folder in sync too.
 
 Already have this folder set up from before? Say instead:
@@ -54,7 +55,9 @@ it lives somewhere unusual), open `.env` for anything still blank, run the tests
 each key. Rerun any time; existing keys and files are kept. Use `.venv\Scripts\python`
 wherever these docs say `.venv/bin/python`. `scripts/check_keys.py` rechecks keys on any OS.
 
-Create `.env` from `.env.example` **only if it does not already exist**, then configure:
+Standalone install (no connections kit): create `.env` from `.env.example` **only if it does
+not already exist**, then configure it. With the kit, put keys in the kit's `.env` instead;
+setup and the kit's fan-out copy them here and would overwrite a value typed here.
 
 | Configuration | Purpose |
 |---|---|

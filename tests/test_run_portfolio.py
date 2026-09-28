@@ -126,3 +126,18 @@ def test_a_partial_run_keeps_the_rest_of_the_days_portfolio(tmp_path, monkeypatc
     report = rp.run(_args(only="b-house"), runner)
     assert [r["slug"] for r in report["listings"]] == ["a-house", "b-house"]
     assert report["totals"]["airroi_calls"] == 2
+
+
+def test_a_shared_slug_never_mixes_two_properties():
+    """Codex review: two property ids pinned or remembered to one slug shared a workdir."""
+    props = [{"id": "p1", "name": "Cabin"}, {"id": "p2", "name": "Lodge"}]
+    slugs = rp.assign_slugs(props, {"p1": "cabin", "p2": "cabin"}, {})
+    assert slugs["p1"] == "cabin" and slugs["p2"] != "cabin"
+    assert len(set(slugs.values())) == 2
+
+
+def test_a_config_pin_wins_over_a_remembered_slug():
+    """Codex review: a remembered slug on an earlier property stole a later property's pin."""
+    props = [{"id": "p1", "name": "Old"}, {"id": "p2", "name": "New"}]
+    slugs = rp.assign_slugs(props, {"p1": "cabin"}, {"cabin": {"property_id": "p2"}})
+    assert slugs["p2"] == "cabin" and slugs["p1"] != "cabin"
