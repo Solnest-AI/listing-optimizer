@@ -124,9 +124,15 @@ def _rank(d: Path) -> tuple:
     return (1, mine, env.stat().st_mtime)
 
 
-def _walk(root: Path, depth: int):
+def _walk(root: Path, depth: int, seen: dict | None = None):
+    """Kit folders under root, `depth` levels down. `seen` maps each folder already walked to
+    the depth it was walked at, so overlapping roots (home, then Desktop) are not re-walked."""
     if depth < 0 or not root.is_dir():
         return
+    if seen is not None:
+        if seen.get(root, -1) >= depth:
+            return
+        seen[root] = depth
     try:
         children = list(root.iterdir())
     except OSError:
@@ -136,7 +142,7 @@ def _walk(root: Path, depth: int):
             if is_kit(c):
                 yield c
             else:
-                yield from _walk(c, depth - 1)
+                yield from _walk(c, depth - 1, seen)
 
 
 def find_kit(explicit: str | None) -> Path | None:
@@ -150,10 +156,11 @@ def find_kit(explicit: str | None) -> Path | None:
     roots = [ROOT.parent, home / "Desktop", home / "Documents", home / "Downloads",
              home / "OneDrive" / "Desktop", home / "OneDrive" / "Documents", home]
     found: list[Path] = []
+    seen: dict = {}
     for r in roots:
         if is_kit(r):
             found.append(r)
-        found.extend(_walk(r, 2))
+        found.extend(_walk(r, 2, seen))
     uniq = []
     for f in found:
         f = f.resolve()

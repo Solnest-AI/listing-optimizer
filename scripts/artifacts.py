@@ -30,8 +30,9 @@ def run_status(workdir: Path) -> dict:
     return data
 
 
-def excluded(workdir: Path, name: str) -> bool:
-    status = run_status(workdir)
+def excluded(workdir: Path, name: str, status: dict | None = None) -> bool:
+    """Pass `status` (from run_status) when checking several files, to parse it once."""
+    status = run_status(workdir) if status is None else status
     return status.get("status") in ("running", "failed") or name in status.get("excluded_files", [])
 
 

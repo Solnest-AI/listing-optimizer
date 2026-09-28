@@ -162,11 +162,13 @@ def caption_coverage(data: dict, orders: set) -> dict:
             "missing": sorted(orders - captioned - remove), "remove": sorted(remove)}
 
 
-def check_caption_orders(data: dict, workdir: Path) -> list:
+def check_caption_orders(data: dict, workdir: Path, orders: set | None = ...) -> list:
     """Mark captions whose photo order is not in this run's gallery as new photos to
     create (e.g. the map the report asks for). A mistyped order surfaces the same way,
-    labelled in the paste block, instead of silently captioning the wrong photo."""
-    orders = gallery_orders(workdir)
+    labelled in the paste block, instead of silently captioning the wrong photo.
+    Pass `orders` when the caller already has gallery_orders(workdir)."""
+    if orders is ...:
+        orders = gallery_orders(workdir)
     if orders is None:
         return []
     new = []
@@ -289,7 +291,7 @@ def merge_machine_blocks(data: dict, workdir: Path) -> list[str]:
         data["data_gaps"] = [f"{s['name']}: {s['detail']}" for s in status.get("steps", [])
                              if s.get("status") == "FAILED"]
     for key, (fname, shape) in MACHINE_BLOCKS.items():
-        if artifacts.excluded(workdir, fname):
+        if artifacts.excluded(workdir, fname, status):
             data.pop(key, None)
             continue
         src = workdir / fname
@@ -463,21 +465,23 @@ def main():
             print(f"[render_report] WARNING: no copy for {', '.join(missing)}. Write them "
                   f"(references/description-sections.md) so the paste block covers every section")
         if args.workdir:
-            new_photos = check_caption_orders(data, Path(args.workdir))
+            wd = Path(args.workdir)
+            orders = gallery_orders(wd)  # read once; used for new-photo marks and coverage
+            new_photos = check_caption_orders(data, wd, orders)
             if new_photos:
                 print(f"[render_report] captions for photos not in the gallery, labelled NEW PHOTO: "
                       f"{new_photos} (check the order if that was not intended)")
-            merged = merge_machine_blocks(data, Path(args.workdir))
+            merged = merge_machine_blocks(data, wd)
             if merged:
                 print(f"[render_report] merged from disk: {', '.join(merged)}")
-            if caption_order_note(data):
-                print(f"[render_report] WARNING: {caption_order_note(data)}")
-            detected = data["detected_gaps"] = listing_gaps.detect(Path(args.workdir), data["optimized"])
+            order_note = caption_order_note(data)
+            if order_note:
+                print(f"[render_report] WARNING: {order_note}")
+            detected = data["detected_gaps"] = listing_gaps.detect(wd, data["optimized"])
             n_gaps = len(detected) + len(data.get("listing_gaps") or [])
             if n_gaps:
                 print(f"[render_report] listing gaps flagged: {n_gaps} ({len(detected)} found by the "
                       f"checks, {n_gaps - len(detected)} by the writer)")
-            orders = gallery_orders(Path(args.workdir))
             if orders:
                 cov = data["caption_coverage"] = caption_coverage(data, orders)
                 print(f"[render_report] captions cover {cov['captioned']} of {cov['gallery']} gallery photos"

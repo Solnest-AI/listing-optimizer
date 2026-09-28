@@ -39,8 +39,10 @@ def _status(d: Path) -> dict:
         return {}
 
 
-def _read(d: Path, name: str):
-    status = _status(d)
+def _read(d: Path, name: str, status: dict | None = None):
+    """A usable working file, or None. Pass `status` when reading several files so
+    pipeline_status.json is parsed once, not once per file."""
+    status = _status(d) if status is None else status
     if status.get("status") in ("running", "failed") or name in status.get("excluded_files", []):
         return None
     p = d / name
@@ -172,17 +174,21 @@ def _booking_rate_scale(funnel: dict) -> str | None:
 def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
     out: list[str] = []
     A = out.append
+    status = _status(d)
+
+    def read(name):
+        return _read(d, name, status)
 
     # ── Subject ───────────────────────────────────────────────────────
-    s = (_read(d, "subject.json") or {}).get("data") or {}
+    s = (read("subject.json") or {}).get("data") or {}
     keys = ("name", "public_name", "summary", "description", "amenities",
             "capacity", "room_details", "house_rules")
     subject = {k: s.get(k) for k in keys}
     # The live Airbnb copy, when RankBreeze/IntelliHost supplied it, is what guests read and
     # what the report must critique. The PMS copy can differ (Boho Bliss 2026-09-26).
-    lg_file = _read(d, "live_gallery.json") or {}
+    lg_file = read("live_gallery.json") or {}
     live, live_provider = (lg_file.get("listing") or {}), lg_file.get("provider")
-    comps_file = _read(d, "comps.json") or {}
+    comps_file = read("comps.json") or {}
     if not live and isinstance(comps_file.get("subject_listing"), dict):
         # AirROI's record of this listing, from the comps call already made.
         sub = comps_file["subject_listing"]
@@ -246,7 +252,6 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
           f"guests read now)"
           + (f". PMS copy differs from live Airbnb: {', '.join(drift)}. Say so; edits made only in the PMS "
              f"may not be reaching Airbnb." if drift else ". PMS copy matches."))
-    status = _status(d)
     problems = [s for s in status.get("steps", []) if s.get("status") == "FAILED"]
     if problems:
         A("DATA GAPS: " + "; ".join(f"{s['name']}: {s['detail']}" for s in problems))
@@ -255,7 +260,7 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
         str(addr[k]) for k in ("street", "city", "state", "country") if addr.get(k)) or "unknown"))
 
     # ── Comps (demand-ranked, price-free) ─────────────────────────────
-    c = _read(d, "comps.json") or {}
+    c = comps_file
     A("\n# COMPS (ranked by demand; no pricing)")
     if c.get("fetch"):
         A(f"source: {c['fetch'].get('path')} ({c['fetch'].get('calls')} paid call(s)), "
@@ -288,8 +293,9 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
               f"Airbnb listing): {fmt(gap['missing'][:15])}")
             A("ticked_on_live_airbnb (verified amenities; copy may claim these): "
               + "; ".join(str(a) for a in live_amenities[:120]))
+            ticked = {amenities.canon(a) for a in live_amenities}
             for key, (label, _, what) in DISCLOSURES.items():
-                if key in {amenities.canon(a) for a in live_amenities}:
+                if key in ticked:
                     A(f"DISCLOSURE REQUIRED: {label} are ticked on Airbnb, and Airbnb requires disclosing "
                       f"them: {what} in other_notes (ask in host_to_confirm if the digest does not say).")
         else:
@@ -305,7 +311,7 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
           "(Airbnb search filters read checkboxes). Literal-text check on title+summary only.")
 
     # ── Photos ────────────────────────────────────────────────────────
-    p = _read(d, "photo_scores.json") or {}
+    p = read("photo_scores.json") or {}
     A(f"\n# PHOTOS hero={p.get('hero')} top5={p.get('recommended_top5_order')} "
       f"reshoot={p.get('reshoot')} restage={p.get('restage')}")
     src = p.get("gallery_source") or {}
@@ -358,20 +364,22 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
           f"cap={str(ph.get('caption') or '')[:60]}")
 
     # ── Reviews (aggregates span what was PULLED, labelled with the real window) ──
-    rev = _read(d, "reviews.json") or {}
+    rev = read("reviews.json") or {}
     rv = rev.get("data") or []
     pull = rev.get("_pull") or {}
     lifetime = pull.get("total_available")
-    complete = bool(pull.get("complete_history")) or (
-        lifetime is not None and len(rv) >= int(lifetime))
-    denom = lifetime if isinstance(lifetime, int) else len(rv)
+    # The API's lifetime total; anything that is not a whole count is treated as unknown.
+    lifetime = lifetime if type(lifetime) is int and lifetime >= 0 else None
+    complete = bool(pull.get("complete_history")) or (lifetime is not None and len(rv) >= lifetime)
+    denom = lifetime if lifetime is not None else len(rv)
     A(f"\n# REVIEWS ({min(len(rv), review_cap)} shown; {len(rv)} pulled of "
       f"{denom if denom else 0} lifetime)")
     cat: dict[str, list] = {}
     platforms: dict[str, int] = {}
     unanswered = answerable = 0
     for r in rv:
-        platforms[str(r.get("platform") or "?")] = platforms.get(str(r.get("platform") or "?"), 0) + 1
+        platform = str(r.get("platform") or "?")
+        platforms[platform] = platforms.get(platform, 0) + 1
         div = _scale_divisor(r)
         for dr in (_lit(r.get("private")).get("detailed_ratings") or []):
             v = _num(dr.get("rating"))
@@ -388,8 +396,8 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
         # 700, not 320: complaints sit at the END of a review ("Only downside was...").
         A(f"- {str(r.get('reviewed_at'))[:10]} {pub.get('rating')}* "
           f"{' '.join(str(pub.get('review') or '').split())[:REVIEW_CHARS]}")
-    private = [(str(r.get("reviewed_at"))[:10], " ".join(str(_lit(r.get("private")).get("feedback")).split()))
-               for r in shown if _lit(r.get("private")).get("feedback")]
+    private = [(str(r.get("reviewed_at"))[:10], " ".join(str(fb).split()))
+               for r in shown if (fb := _lit(r.get("private")).get("feedback"))]
     if private:
         A("PRIVATE FEEDBACK (guest-to-host only: use it to find fixes and expectation gaps, "
           "NEVER quote or paraphrase it in public copy):")
@@ -404,8 +412,8 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
     A(f"review_platforms: {platforms}   (category scales normalised to 0-5 per platform)")
     # Channel inventory is account-level; a capped property review sample cannot establish
     # which channels this listing uses or which reviews the provider can deliver.
-    missing = [c for c in (_read(d, "channels.json") or {}).get("silent_channels", [])
-               if c not in platforms]
+    missing = [ch for ch in (read("channels.json") or {}).get("silent_channels", [])
+               if ch not in platforms]
     if missing:
         A(f"CHANNELS WITH NO REVIEW DATA: {missing} (account-level inventory). None appear "
           f"in the retrieved review sample. This is NOT the whole picture of account "
@@ -432,18 +440,18 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
     # ── Funnel / occupancy / prior run ────────────────────────────────
     # Formatted whole, never sliced: a fixed-length cut of serialized JSON drops whole
     # records (a 365-day calendar lost its later months at 1,500 chars).
-    funnel = _read(d, "funnel.json")
+    funnel = read("funnel.json")
     if funnel:
         A("\n# FUNNEL\n" + json.dumps(funnel, ensure_ascii=False))
         checks = _funnel_checks(funnel)
         if checks:
             A("FUNNEL CHECKS (do not diagnose from these months as if they were clean):")
-            for c in checks:
-                A(f"- {c}")
+            for check in checks:
+                A(f"- {check}")
         scale = _booking_rate_scale(funnel)
         if scale:
             A(scale)
-    occ = _read(d, "occupancy.json")
+    occ = read("occupancy.json")
     if isinstance(occ, dict) and occ:
         fw = occ.get("forward_window") or {}
         A(f"\n# OCCUPANCY (source: {occ.get('source')}; on the books from the run date, "
@@ -459,7 +467,7 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
             A("rankbreeze_crosscheck: " + json.dumps(occ["rankbreeze_crosscheck"], ensure_ascii=False))
     # One compact line per prior run. Raw JSON was cut mid-record at 1,500 chars, which
     # hid every run after the first and half of the first one's amenity gaps.
-    prior = _read(d, "prior_runs.json")
+    prior = read("prior_runs.json")
     if isinstance(prior, list) and prior:
         A("\n# PRIOR RUNS (most recent first)")
         for r in prior[:3]:

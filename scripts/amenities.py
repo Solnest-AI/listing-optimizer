@@ -107,7 +107,7 @@ def canon(text) -> str:
 
 
 def subject_amenity_set(amenities, house_rules) -> set[str]:
-    have = {canon(a) for a in (amenities or []) if canon(a)}
+    have = {c for c in map(canon, amenities or []) if c}
     for key, label in HOUSE_RULE_AMENITIES.items():
         if isinstance(house_rules, dict) and house_rules.get(key) is True:
             have.add(label)

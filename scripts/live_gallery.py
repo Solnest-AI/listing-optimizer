@@ -221,10 +221,11 @@ def to_images(g: dict) -> dict:
                         "reported": g.get("reported", len(g["photos"]))}}
 
 
-def fetch(room_id: str) -> tuple[dict | None, list[str]]:
-    """Try each configured source in order. Returns (gallery or None, notes on misses)."""
+def fetch(room_id: str, sources: list[tuple[str, dict]] | None = None) -> tuple[dict | None, list[str]]:
+    """Try each configured source in order. Returns (gallery or None, notes on misses).
+    Pass `sources` when the caller already has configured_sources()."""
     notes = []
-    for name, cfg in configured_sources():
+    for name, cfg in configured_sources() if sources is None else sources:
         session = None
         try:
             session = Session(cfg["url"], cfg.get("token"))
@@ -243,9 +244,10 @@ def main():
     ap.add_argument("--room-id", required=True, help="Airbnb listing id")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
-    if not configured_sources():
+    sources = configured_sources()
+    if not sources:
         sys.exit("[live_gallery] no RANKBREEZE_MCP_URL or INTELLIHOST_MCP_TOKEN configured")
-    g, notes = fetch(args.room_id)
+    g, notes = fetch(args.room_id, sources)
     for n in notes:
         print(f"[live_gallery] {n}", file=sys.stderr)
     if g is None:

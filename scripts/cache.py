@@ -78,12 +78,27 @@ def get(namespace: str, key: str, ttl_days: float):
     return get_many(namespace, [key], ttl_days).get(key)
 
 
+def _age(saved: datetime) -> float:
+    return round((datetime.now(timezone.utc) - saved).total_seconds() / 86400, 2)
+
+
+def get_with_age(namespace: str, keys: list[str], ttl_days: float) -> tuple[str, object, float] | None:
+    """(key, value, age in days) for the first of `keys` with a fresh entry, from ONE file
+    read. None on miss / expiry / disabled."""
+    if disabled() or ttl_days <= 0:
+        return None
+    data = _load(namespace)
+    for k in keys:
+        saved = _saved_at(data.get(k))
+        if saved is not None and datetime.now(timezone.utc) - saved <= timedelta(days=ttl_days):
+            return k, data[k]["value"], _age(saved)
+    return None
+
+
 def age_days(namespace: str, key: str) -> float | None:
     """How old the cached entry is, for honest reporting ('cache hit, 3d old')."""
     saved = _saved_at(_load(namespace).get(key))
-    if saved is None:
-        return None
-    return round((datetime.now(timezone.utc) - saved).total_seconds() / 86400, 2)
+    return None if saved is None else _age(saved)
 
 
 def put(namespace: str, key: str, value, max_entries: int = 500) -> None:

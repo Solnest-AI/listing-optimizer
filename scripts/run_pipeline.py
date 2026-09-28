@@ -20,7 +20,9 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
+import shutil
 import subprocess
 import sys
 from datetime import date, timedelta
@@ -162,8 +164,11 @@ def airroi_gallery_step(wd: Path) -> tuple[str, str]:
         return "skipped", (f"{gallery['incomplete_reason']} (top {gallery['returned']} only); photo plan "
                            f"uses the PMS gallery, AirROI still supplies the live copy and amenities")
     fetch = comps.get("fetch") or {}
-    gallery["fetched_at"] = (f"AirROI data cached {fetch.get('cache_age_days')} days ago"
-                             if fetch.get("path") == "cache" else "AirROI pull on the run date")
+    # The subject's own record can be cached while the pool is fresh; its age is what counts.
+    age = fetch.get("subject_cache_age_days",
+                    fetch.get("cache_age_days") if fetch.get("path") == "cache" else None)
+    gallery["fetched_at"] = (f"AirROI data cached {age} days ago" if age is not None
+                             else "AirROI pull on the run date")
     try:
         live_gallery.validate(gallery)
     except ValueError as e:
@@ -171,6 +176,19 @@ def airroi_gallery_step(wd: Path) -> tuple[str, str]:
     artifacts.write_json(wd / "live_gallery.json", gallery)
     artifacts.write_json(wd / "images.json", live_gallery.to_images(gallery))
     return "ok", f"AirROI: {gallery['returned']} live Airbnb photos from the comps pool (no extra call)"
+
+
+def _copy_atomic(src: Path, dst: Path) -> bool:
+    """Copy a file so a concurrent reader never sees half of it. False if src is unusable."""
+    try:
+        json.loads(src.read_text(encoding="utf-8-sig"))
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dst.with_name(f".{dst.name}.{os.getpid()}.tmp")
+        shutil.copyfile(src, tmp)
+        os.replace(tmp, dst)
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def _tag_pms_images(path: Path, provider: str) -> None:
@@ -383,7 +401,16 @@ def main():
     elif not args.pid:
         st.skip("no --property-id (Hospitable-only; report review coverage cautiously)")
     else:
-        ok, msg = run([PY, SCRIPTS / "hospitable_api.py", "channels", "--out", wd / "channels.json"], "channels")
+        # Account-level, identical for every property: pulled once per run date and shared,
+        # instead of one identical call per listing in a portfolio run.
+        shared = ROOT / "output" / args.date / "_account" / "channels.json"
+        ok = not args.refresh and _copy_atomic(shared, wd / "channels.json")
+        msg = "reused this date's account channel list (no call)"
+        if not ok:
+            ok, msg = run([PY, SCRIPTS / "hospitable_api.py", "channels", "--out", wd / "channels.json"],
+                          "channels")
+            if ok:
+                _copy_atomic(wd / "channels.json", shared)
         if ok:
             usable.add("channels.json")
             try:
@@ -397,15 +424,16 @@ def main():
     # ── Calendar + reservations → occupancy (read-only; price stripped at source) ──
     st = Step("calendar+occupancy")
     steps.append(st)
+    calendar_ready = "calendar" not in skip and have("calendar.json")
     if "calendar" in skip:
         st.skip("--skip")
-    elif not args.pid and not have("calendar.json"):
+    elif not args.pid and not calendar_ready:
         st.skip("no --property-id and no staged calendar.json")
     else:
         ok = True
         calendar_from_hospitable = False
         end = str(start_date + timedelta(days=args.calendar_days - 1))
-        if not have("calendar.json"):
+        if not calendar_ready:
             ok, msg = run(hosp("calendar", wd / "calendar.json", args.pid,
                                ("--start", args.date, "--end", end)), "calendar")
             calendar_from_hospitable = ok

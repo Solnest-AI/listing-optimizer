@@ -41,7 +41,14 @@ class Session:
         self.client = httpx.Client(timeout=timeout)
         self._id = 0
         try:
-            r = self.client.post(url, headers=self.headers, json=self._msg("initialize", {
+            self._initialize()
+        except BaseException:
+            self.client.close()  # the caller never gets a Session to close
+            raise
+
+    def _initialize(self) -> None:
+        try:
+            r = self.client.post(self.url, headers=self.headers, json=self._msg("initialize", {
                 "protocolVersion": PROTOCOL, "capabilities": {},
                 "clientInfo": {"name": "listing-optimizer", "version": "1"}}))
         except httpx.HTTPError as e:
@@ -52,8 +59,11 @@ class Session:
             raise MCPError(f"MCP initialize failed (HTTP {r.status_code})")
         if r.headers.get("mcp-session-id"):
             self.headers["Mcp-Session-Id"] = r.headers["mcp-session-id"]
-        self.client.post(url, headers=self.headers,
-                         json={"jsonrpc": "2.0", "method": "notifications/initialized"})
+        try:
+            self.client.post(self.url, headers=self.headers,
+                             json={"jsonrpc": "2.0", "method": "notifications/initialized"})
+        except httpx.HTTPError as e:
+            raise MCPError(f"MCP initialized notification failed ({type(e).__name__})") from e
 
     def _msg(self, method: str, params: dict) -> dict:
         self._id += 1
@@ -67,6 +77,8 @@ class Session:
             data = _parse(r)
         except (httpx.HTTPError, ValueError) as e:
             raise MCPError(f"{tool}: bad response ({type(e).__name__})") from e
+        if not isinstance(data, dict):
+            raise MCPError(f"{tool}: response was not a JSON-RPC object")
         if data.get("error"):
             raise MCPError(f"{tool}: {str(data['error'].get('message', data['error']))[:200]}")
         result = data.get("result") or {}

@@ -21,6 +21,8 @@ import json
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import artifacts
+
 ROOT = Path(__file__).resolve().parent.parent
 STATE_PATH = ROOT / "state" / "refresh_state.json"
 HISTORY_PATH = ROOT / "state" / "history.jsonl"
@@ -47,8 +49,8 @@ def _load() -> dict:
 
 
 def _save(state: dict) -> None:
-    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+    # Atomic: a crash mid-write would otherwise read back as "never refreshed" for every listing.
+    artifacts.write_json(STATE_PATH, state)
 
 
 def _today(arg: str | None) -> date:

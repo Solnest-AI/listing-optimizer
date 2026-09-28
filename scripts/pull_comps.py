@@ -32,6 +32,7 @@ import cache
 # 14 days stays inside the noise the ALE rubric can resolve.
 CACHE_TTL_DAYS = 14
 CACHE_NS = "airroi_comps"
+SUBJECT_CACHE_NS = "airroi_subject"
 
 
 # ── Pricing strip: whitelist only NON-PRICE fields ────────────────────
@@ -157,13 +158,11 @@ async def _run(args) -> dict:
     # shared coordinate pool for another address in the same grid cell.
     fallback_ck = cache.key_for(query=ck, fallback=(args.address or "").strip().casefold())
     ttl = 0 if args.no_cache else args.cache_ttl_days
-    cached = cache.get(CACHE_NS, ck, ttl)
-    hit_key = ck
-    if cached is None and args.address:
-        cached = cache.get(CACHE_NS, fallback_ck, ttl)
-        hit_key = fallback_ck
-    if cached is not None:
-        age = cache.age_days(CACHE_NS, hit_key)
+    # One cache read for the coordinate pool and, failing that, the address fallback pool.
+    hit = cache.get_with_age(CACHE_NS, [ck, fallback_ck] if args.address else [ck], ttl)
+    cached = hit[1] if hit else None
+    if hit:
+        age = hit[2]
         print(f"[pull_comps] CACHE HIT ({age}d old, ttl {ttl}d) — 0 AirROI calls. "
               f"--no-cache to force a fresh pull.", file=sys.stderr)
         comps_raw, meta = cached, {"calls": 0, "path": "cache", "cache_age_days": age}
@@ -192,12 +191,25 @@ async def _run(args) -> dict:
     # one listing call when it is not.
     subject = cleaned.get(excluded_id) if excluded_id else None
     if excluded_id and (subject is None or "photo_urls" not in subject):
-        try:
-            subject = _clean_comp(await airroi_client.get_listing(excluded_id))
+        # Cached like the pool: without this, a subject missing from its own pool cost one
+        # paid listing call on EVERY run, cache hit or not.
+        subject_ck = cache.key_for(listing_id=excluded_id)
+        subject_hit = cache.get_with_age(SUBJECT_CACHE_NS, [subject_ck], ttl)
+        subject = subject_hit[1] if subject_hit else None
+        if subject is not None:
+            # Its own age: a fresh pool with a cached subject must not read as "pulled today".
+            meta = {**meta, "subject_path": "listing endpoint (cached, no call)",
+                    "subject_cache_age_days": subject_hit[2]}
+        else:
+            # Billed whether or not it succeeds, so the call is counted before it is made.
             meta = {**meta, "calls": meta.get("calls", 0) + 1, "subject_path": "listing endpoint"}
-        except airroi_client.AirROIError as e:
-            print(f"[pull_comps] subject listing unavailable from AirROI ({e})", file=sys.stderr)
-            subject = None
+            try:
+                subject = _clean_comp(await airroi_client.get_listing(excluded_id))
+            except airroi_client.AirROIError as e:
+                print(f"[pull_comps] subject listing unavailable from AirROI ({e})", file=sys.stderr)
+                subject = None
+            if subject is not None and not args.no_cache:
+                cache.put(SUBJECT_CACHE_NS, subject_ck, subject)
     elif subject is not None:
         meta = {**meta, "subject_path": "comps pool (no extra call)"}
 

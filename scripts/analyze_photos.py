@@ -342,14 +342,18 @@ async def _score_batch(photos, model, key, concurrency, batch_size=DEFAULT_BATCH
             async with sem:
                 if fatal.is_set():
                     return [{**p, "scored": False, "error": "Gemini access failed; not requested"} for p in batch]
+                # The batch's images download together, not one after another.
+                stats["image_fetches"] += len(batch)
+                fetched = await asyncio.gather(*(_fetch_image(client, p["url"]) for p in batch),
+                                               return_exceptions=True)
                 prepared, failed = [], []
-                for photo in batch:
-                    try:
-                        stats["image_fetches"] += 1
-                        mime, b64 = await _fetch_image(client, photo["url"])
-                        prepared.append((photo, mime, b64))
-                    except (httpx.HTTPError, ValueError, KeyError):
+                for photo, got in zip(batch, fetched, strict=True):
+                    if isinstance(got, (httpx.HTTPError, ValueError, KeyError)):
                         failed.append({**photo, "scored": False, "error": "photo download failed or invalid image"})
+                    elif isinstance(got, BaseException):
+                        raise got
+                    else:
+                        prepared.append((photo, *got))
                 if prepared:
                     failed.extend(await _generate_scores(client, model, key, prepared, stats, fatal,
                                                          3 if retry_failures else 1))
@@ -769,8 +773,9 @@ def main():
     except Exception as e:  # never sink the scoring run on the extra check
         dup = {"pairs": [], "checked": 0, "note": f"duplicate check failed ({type(e).__name__})"}
     result["duplicates"] = dup
-    if duplicate_gap(dup["pairs"]):
-        result["gaps"].append(duplicate_gap(dup["pairs"]))
+    dup_gap = duplicate_gap(dup["pairs"])
+    if dup_gap:
+        result["gaps"].append(dup_gap)
     result["scored_by"] = {"gemini": sum(1 for p in scored if p.get("scorer") == "gemini"),
                            "claude_vision": sum(1 for p in scored if p.get("scorer") == "claude_vision")}
     if result["scored_by"]["claude_vision"]:
@@ -782,8 +787,9 @@ def main():
     result["usage"] = stats
     result["rubric_version"] = RUBRIC_VERSION
     result["gallery_source"] = load_source(Path(args.photos))
-    if source_note(result["gallery_source"]):
-        result["coverage_note"] += "; " + source_note(result["gallery_source"])
+    note = source_note(result["gallery_source"])
+    if note:
+        result["coverage_note"] += "; " + note
     result["gallery_count"] = len(gallery)
     result["not_submitted_count"] = len(gallery) - len(photos)
     if len(gallery) > len(photos):

@@ -101,10 +101,13 @@ def discover(date: str, refresh: bool, runner=subprocess.run) -> list[dict]:
 
 def listing_facts(wd: Path) -> dict:
     """Measured cost and state of one listing's pipeline run, from the files it wrote."""
-    st = _load(wd / "pipeline_status.json", {})
-    comps = _load(wd / "comps.json", {})
-    photos = _load(wd / "photo_scores.json", {})
+    st, comps, photos = (x if isinstance(x, dict) else {} for x in (
+        _load(wd / "pipeline_status.json", {}), _load(wd / "comps.json", {}), _load(wd / "photo_scores.json", {})))
     usage = photos.get("usage") or {}
+    try:
+        digest = (wd / "digest.md").read_text(encoding="utf-8-sig")
+    except OSError:
+        digest = None
     rec = {
         "status": st.get("status") or "not run",
         "failed_steps": [f"{s.get('name')}: {str(s.get('detail'))[:160]}" for s in st.get("steps") or []
@@ -115,9 +118,8 @@ def listing_facts(wd: Path) -> dict:
         "photos_scored": photos.get("scored_count"),
         "quota_exhausted": usage.get("quota_exhausted"),
         "photos_pending": (wd / "photo_fallback.json").exists(),
-        "has_digest": (wd / "digest.md").exists(),
-        "owner_notes_in_digest": "# OWNER NOTES" in ((wd / "digest.md").read_text(encoding="utf-8-sig")
-                                                     if (wd / "digest.md").exists() else ""),
+        "has_digest": digest is not None,
+        "owner_notes_in_digest": "# OWNER NOTES" in (digest or ""),
     }
     rec["ready_to_write"] = rec["status"] in WRITABLE and rec["has_digest"] and not rec["photos_pending"]
     return rec
@@ -129,12 +131,15 @@ def run(args, runner=subprocess.run) -> dict:
     props = [p for p in discover(args.date, args.refresh, runner) if isinstance(p, dict) and p.get("id")]
     if not args.include_unlisted:
         props = [p for p in props if p.get("listed", True)]
-    slugs = assign_slugs(props, _load(SLUGS, {}), config)
-    _write_json(SLUGS, {**_load(SLUGS, {}), **slugs})
+    known = _load(SLUGS, {})
+    known = known if isinstance(known, dict) else {}
+    slugs = assign_slugs(props, known, config)
+    _write_json(SLUGS, {**known, **slugs})
     only = {s.strip() for s in (args.only or "").split(",") if s.strip()}
     props = sorted((p for p in props if not only or slugs[p["id"]] in only), key=lambda p: slugs[p["id"]])
-    if only - {slugs[p["id"]] for p in props}:
-        print(f"[portfolio] not found: {', '.join(sorted(only - {slugs[p['id']] for p in props}))}")
+    not_found = only - {slugs[p["id"]] for p in props}
+    if not_found:
+        print(f"[portfolio] not found: {', '.join(sorted(not_found))}")
 
     listings, stop = [], None
     for p in props:
