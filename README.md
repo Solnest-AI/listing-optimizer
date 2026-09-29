@@ -9,16 +9,44 @@ Hospitable collection is built in. Other PMSs can supply the same staged JSON co
 through their read tools. This MVP does not ship a hosted UI or automatic PMS publishing.
 It never writes pricing, calendars, availability, fees or stay restrictions.
 
-## Start here (summit morning, start to finish)
+## Start here (summit, start to finish)
 
 You need two things: the **Claude Code desktop app**, and the
 [STR Secrets Connections kit](https://github.com/Solnest-AI/str-secrets-connections) set up
 on this computer (that is where your keys live; "Set up my connections" in that folder if
 you have not done it yet). Nothing else to install by hand.
 
-1. Download this folder (the zip, or `git clone`) somewhere easy, like your Desktop.
-2. Open it in the Claude Code desktop app.
-3. Say: **"Set up the Listing Optimizer."**
+1. Paste this link into the Claude Code desktop app and say **"Set this up"**:
+
+   https://github.com/Solnest-AI/listing-optimizer
+
+   Claude downloads it to a folder called `listing-optimizer` in your home folder and sets
+   it up. (Already have the folder? Open it in Claude Code and say **"Set up the Listing
+   Optimizer."**)
+2. When Claude shows a green check ✅, open the `listing-optimizer` folder in the Claude
+   Code desktop app (or drag the folder into the app window). Claude tells you where it is.
+   The optimizer only loads in a session opened in that folder.
+3. Say: **"Optimize my [listing] for [season]."**
+
+> **Claude:** if someone pasted this repo's link and said "set this up", clone it to
+> `~/listing-optimizer` (if that folder already exists, use it and follow step 1 of "Setup
+> or update" in its `CLAUDE.md` instead of cloning). If Claude Code is already open inside
+> this repo, skip the clone and use this folder. Then follow "Setup or update" in
+> `CLAUDE.md`, starting every command with `cd ~/listing-optimizer &&` (or this folder),
+> because Claude Code can reset the working folder between commands. Give the setup command
+> a 15 minute timeout. When setup exits 0, say "✅ Listing Optimizer is set up." and give
+> them the one step left: open the folder (say its full path) in the Claude Code desktop
+> app, or drag it into the app window, then say **"Optimize my [listing] for [season]."**
+> Do not start an optimization from this session: the `listing-writer` agent it needs only
+> loads in a session opened in that folder.
+>
+> **On a Mac, if `git` fails with `xcrun: error` or `invalid active developer path`,** Git
+> is not installed yet. Get the same folder without it (run this same line again to update
+> a folder that has no `.git`), then run setup as normal:
+>
+> ```bash
+> D=~/listing-optimizer; mkdir -p "$D" && curl -fsSL -o "$D.tar.gz" https://github.com/Solnest-AI/listing-optimizer/archive/refs/heads/main.tar.gz && tar -xzf "$D.tar.gz" -C "$D" --strip-components 1 && rm -f "$D.tar.gz"
+> ```
 
 Claude runs the bundled setup script (`setup.ps1` on Windows, `setup.sh` on Mac). It installs
 uv, Python and Git if they are missing, builds the environment, finds your connections kit,

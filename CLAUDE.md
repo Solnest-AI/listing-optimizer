@@ -17,7 +17,8 @@ Python scripts collect and validate evidence; the agent writes ALE + StoryBrand 
 
 ## Setup or update
 
-Trigger: "Set up the Listing Optimizer", the README's start line, or the first optimization
+Trigger: "Set up the Listing Optimizer", this repo's link pasted with "set this up" (the
+README's Claude note covers where to clone it), the README's start line, or the first optimization
 in a session when `.venv` is missing or `scripts/check_keys.py` does not exit 0. The setup
 script installs what is missing; never send the user off to install Python, Git or packages
 by hand. You run every command yourself; the attendee never opens a terminal.
@@ -47,7 +48,9 @@ by hand. You run every command yourself; the attendee never opens a terminal.
    - Windows, from the Bash tool (Git Bash) or PowerShell:
      `powershell.exe -NoProfile -ExecutionPolicy Bypass -File setup.ps1 -NoPrompt -AutoInstall`
    - Mac/Linux: `bash setup.sh --no-prompt --auto-install`
-   Exit 0: ready. Exit 2: read its `!!` lines and continue with step 4. Exit 1: show the
+   Exit 0: ready; say "✅ Listing Optimizer is set up." If this session is not open in this
+   folder, give them its full path to open in the desktop app before any optimization (the
+   `listing-writer` agent only loads there). Exit 2: read its `!!` lines and continue with step 4. Exit 1: show the
    user its last lines and stop. If the app's Auto mode blocks the command ("Blocked", "no
    verdict"), that is the app's classifier, not the command: switch the session to Manual
    and rerun. If Git was just installed, tell the user to restart Claude Code afterwards.
