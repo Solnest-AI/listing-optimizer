@@ -340,13 +340,18 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
           f"agent_photo_scores.json, then rerun the same run_pipeline command BEFORE writing "
           f"result.json. Do not recommend a cover or gallery order from an incomplete ranking.")
     A("gaps: " + json.dumps(p.get("gaps") or [], ensure_ascii=False))
-    for ph in (p.get("photos") or []):
-        if not ph.get("scored"):
-            continue
-        A(f"- #{ph.get('order')} avg={ph.get('avg')} [{ph.get('subject_kind') or '?'}] "
-          f"{str(ph.get('subject'))[:60]} | flags={ph.get('flags')} | "
-          f"season={ph.get('season')} people={ph.get('has_people')} | "
-          f"cap={str(ph.get('caption') or '')[:60]}")
+    # One compact line per photo (a 78-photo gallery was 12.5KB of the digest). Defaults are
+    # left out and named once in the legend, so nothing the writer reads is lost.
+    scored_photos = [ph for ph in (p.get("photos") or []) if ph.get("scored")]
+    if scored_photos:
+        A("photo lines: #position avg [subject_kind] subject | season | +people (absent = none) | "
+          "flags (absent = none) | cap: current caption, first 60 chars (cap: - = no caption)")
+    for ph in scored_photos:
+        extra = "".join(f" | {x}" for x in (("+people" if ph.get("has_people") else ""),
+                                            ",".join(ph.get("flags") or [])) if x)
+        A(f"- #{ph.get('order')} {ph.get('avg')} [{ph.get('subject_kind') or '?'}] "
+          f"{str(ph.get('subject'))[:60]} | {ph.get('season')}{extra} | "
+          f"cap: {str(ph.get('caption') or '').strip()[:60] or '-'}")
 
     # ── Reviews (aggregates span what was PULLED, labelled with the real window) ──
     rev = read("reviews.json") or {}

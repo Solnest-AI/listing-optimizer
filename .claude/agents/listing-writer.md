@@ -71,94 +71,6 @@ description: Use when a short-term-rental host asks to optimize, audit or refres
   the renderer assembles measured facts from disk.
 - Run history is local (`state/history.jsonl`). Nothing writes to a database.
 
-## 0. Preflight
-
-If `.venv` is missing or `scripts/check_keys.py` (run with the venv Python) does not exit
-0, follow "Setup or update" in CLAUDE.md first: the setup script installs uv, Python, Git
-and packages itself and copies keys from the attendee's STR Secrets Connections kit. Keys
-never touch the chat and are never typed into `.env` by you: anything still blank or
-rejected, the attendee pastes into the file setup opened for them (the kit's `.env` when a
-kit is linked; the next setup run copies it over). If setup just installed Git on Windows,
-the attendee restarts Claude Code before any writing happens. Only then continue.
-
-## 1. Scope and discovery
-
-Ask the target season only if the user has not provided it. Use known property facts for
-seasonal attractions; ask for unknown facts only if they materially affect the copy.
-Discover properties through the user's PMS. Prefer saving the bundled Hospitable
-`properties --out <file>` result, then print a compact id/name list for selection.
-Do not echo full listing responses. Slugs use lowercase letters, digits and hyphens.
-
-Write every listing with the bundled `listing-writer` agent (`.claude/agents/`). Run the
-pipeline first, then give the agent the slug, date, season and any owner-confirmed facts.
-It carries these rules in its system prompt, has only Read, Bash and Write (plus PowerShell
-for a Windows machine without Git Bash), and finishes in three tool calls, so a report does
-not pay for the tool catalogue a general agent loads or for extra turns that re-send the
-whole context. Several listings: one writer per listing, a
-few at once within the environment's capacity. Never split a listing among agents or put
-several listings in one agent. If the agent is missing (Claude Code loads agents at
-startup, so restart after installing or updating) or the user forbids delegation, write
-inline by following sections 3 and 4.
-
-Whole portfolio (Hospitable): `scripts/run_portfolio.py --date <DATE>` runs the pipeline for
-every listed property, one failure never stopping the rest, and prints a WRITER QUEUE. Launch
-one `listing-writer` per queued line (a few at once), passing the season; owner facts reach
-the digest from `config/properties.json` (`season`, `owner_facts`, `notes`). A writer that
-replies `PHOTO FALLBACK REQUIRED` needs section 2b first. A Gemini daily quota stops new
-listings; rerun with `--resume` after midnight Pacific. Exit 2 means partial (a listing failed,
-was held, or the run stopped): the WRITER QUEUE it printed is still valid, so launch those
-writers, and `--resume` retries the rest, including any listing with a failed step. Run one
-portfolio at a time; two at once can overwrite each other's `portfolio.json`. Finish with
-`scripts/run_portfolio.py --date <DATE> --summary` (per-listing AirROI, Gemini and Claude
-tokens, written to the Desktop). Slugs stay fixed per property in `state/slugs.json`.
-
-Python is `.venv/bin/python` (Windows `.venv\Scripts\python`). Use the current date.
-For Hospitable:
-
-```bash
-.venv/bin/python scripts/run_pipeline.py --slug <SLUG> --date <DATE> --property-id <UUID>
-```
-
-For another PMS, stage its read-only data in `output/<DATE>/<SLUG>/`, then omit
-`--property-id`. An Airbnb-only source is usable when it supplies this same contract;
-there is no bundled general-purpose importer or live occupancy source for it.
-
-| File | Shape |
-|---|---|
-| `subject.json` | `{"data":{"name":"","public_name":"","summary":"","description":"","amenities":[],"capacity":{"max":4,"bedrooms":2,"bathrooms":1},"room_details":[],"house_rules":{},"address":{"display":"","city":"","coordinates":{"latitude":0,"longitude":0}},"listings":[{"platform":"airbnb","platform_id":""}]}}` |
-| `images.json` | `{"data":[{"url":"https://...","caption":"","order":0}]}`; unique integer orders |
-| `reviews.json` (optional) | `{"data":[{"reviewed_at":"","platform":"","responded_at":null,"public":{"rating":5,"rating_platform_original":5,"review":""},"private":{"detailed_ratings":[{"type":"cleanliness","rating":5}]}}],"_pull":{"total_available":20,"complete_history":true}}` |
-| `calendar.json` (optional) | `{"data":{"days":[{"date":"YYYY-MM-DD","status":{"available":true,"reason":"AVAILABLE"}}]}}`; no monetary or stay-restriction fields |
-| `channels.json` (optional) | `{"connected_platforms":[],"silent_channels":[]}`; label the source's actual coverage |
-
-## 2. Gather and read the evidence
-
-The pipeline gathers source data, comps, photo scores, occupancy, prior history and
-cadence, then creates `digest.md` plus `pipeline_status.json`.
-
-- `--refresh`: re-fetch Hospitable sources. Staged sources are preserved on other PMSs.
-- `--no-cache` or `LO_NO_CACHE=1`: force paid lookups again.
-- `--skip reviews,calendar,channels,comps,photos,memory`: comma-separated optional stages.
-- `--photo-limit N`: default 100 (Airbnb's maximum gallery), range 1..100.
-- `--review-limit N`: default 20, range 1..50; `--all-reviews` for lifetime analysis.
-- `--calendar-days N`: default 90, range 1..365.
-- `--rankbreeze "Jun:41,Jul:55"`: optional occupancy cross-check.
-
-Missing subject or failed digest is fatal. Optional failures degrade the report and are
-recorded explicitly. Failed/stale artifacts must not be reused. Restage invalid input or
-rerun with `--refresh` to recover. Never treat exit 0 as proof every stage succeeded.
-Do not independently re-run completed gathering steps or dump raw payloads into context.
-
-AirROI uses one paid request per new coordinate pool, with an address fallback only for
-an empty pool. Pools cache for 14 days. Photos use batches of five, cache for 120 days,
-and retry transient failures at most three attempts per batch. The output records actual
-request and token counts. Changed rubric/model invalidates cached scores.
-
-Optional RankBreeze: only if `config/properties.json` supplies `rankbreeze_id` and its
-read tools are connected. Pull metrics and rankings once, save `funnel.json`, then rebuild
-with `scripts/build_digest.py <workdir>`. Never fetch competitor rates. Listing views are
-visits; search impressions are appearances. Treat scraped occupancy as a cross-check.
-
 ## 2a. The live Airbnb listing (what guests actually see)
 
 Every run reads the listing's public Airbnb page once (free, no key): title, summary, The
@@ -183,24 +95,6 @@ With a live read, photo numbers are Airbnb positions (1 = current cover), captio
 on Airbnb, and the digest's copy and amenity gaps come from the live page (`copy_source`,
 `missing_on_live_airbnb`); if it says the PMS copy differs, report that. Say which gallery the
 plan uses; never present PMS findings as Airbnb facts.
-
-## 2b. Photo fallback (only when the digest says PHOTO FALLBACK REQUIRED)
-
-Gemini was missing or failed on some photos. Open `photo_fallback.json` in the working
-dir and Read each `local_path` image. Score every photo against its `rubric` exactly as
-Gemini would: integer 0-5 scores, one `subject_kind` from the closed list, honest flags.
-Write `agent_photo_scores.json` next to it as `{"data":[{...}]}`, copying each `order` and
-`url` from the manifest and filling every `schema.required` field. Rerun the same
-`run_pipeline.py` command (cached steps cost nothing). The renderer then ranks the merged
-scores with the same banding and distinct-beat rules. Say in the report how many photos
-were scored by the fallback. Photos with a `download_error` stay unscored; report them.
-
-Read `digest.md` and these references when writing:
-- `references/ale-rubric.md`
-- `references/storybrand-sb7-rubric.md`
-- `references/airbnb-field-limits.md`
-- `references/description-sections.md`
-- `references/photo-rubric.md` only when interpreting/changing the photo plan
 
 Private feedback in the digest is guest-to-host: use it to find fixes and expectation
 gaps (for example, set A/C expectations in The Space), never quote or paraphrase it.
@@ -273,36 +167,6 @@ Do not retype those blocks. Optional `funnel` is your normalized RankBreeze read
 `lever_focus` and `diagnosis`. The two monthly fields are objects keyed by month label, as in
 the example, never lists (the renderer rejects a list, costing a repeat turn). Never fill
 unknown metrics with zero.
-
-## 4. Render and record
-
-```bash
-.venv/bin/python scripts/render_report.py --data output/<DATE>/<SLUG>/result.json --workdir output/<DATE>/<SLUG> --listing-slug <SLUG> --date <DATE>
-.venv/bin/python scripts/memory.py record --result output/<DATE>/<SLUG>/result.json --workdir output/<DATE>/<SLUG> --result-path output/<DATE>/<SLUG>/result.json --season <SEASON> --out output/<DATE>/<SLUG>/record.json
-```
-
-Rendering validates usable copy and scans all deliverables. Fix any failure; there is no
-pricing bypass. Files: `~/Desktop/Listing Optimizer/<SLUG>/<DATE>/report.html`, `report.md`,
-`paste-block.txt`. Keep applied=false and omit cadence marks for draft-only runs.
-Local history is an atomic, locked upsert on listing/date in `state/history.jsonl`.
-
-Report the ALE score, three main gaps, photo recommendation, data limitations, prior-run
-trend (or baseline), output links, actual API calls and cache use, and the report's
-"Confirm with the host" questions. When the host answers one, save the answer (outside the
-writer) with `scripts/owner_facts.py add --slug <SLUG> "<fact>"` so every later run uses it
-and the host is never asked twice. A report is a draft,
-not a change to the live listing. Do not rerun the entire test suite during each routine
-optimization; the renderer performs per-output checks. Tests run when code changes.
-
-## 5. Optional approved application
-
-Hospitable: paste-only. Another PMS: verify that its current API supports content updates.
-These write paths are not bundled or end-to-end tested. Proceed only after the user sees
-and explicitly approves the exact content. Save current content as `before-writeback.json`,
-build a content-only payload from scratch, apply it, and re-read each changed field.
-Never merge a full listing object into a write. Only after confirmed application (or user
-confirmation that they pasted it), mark the changed cadence items and record applied=true.
-A failed read-back is unverified, never success.
 <!-- END .claude/skills/listing-optimizer/SKILL.md -->
 
 <!-- BEGIN .claude/skills/listing-optimizer/references/ale-rubric.md -->
