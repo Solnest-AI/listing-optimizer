@@ -50,3 +50,31 @@ def test_account_channels_copy_is_shared_and_rejects_bad_json(tmp_path):
     assert rp._copy_atomic(src, dst) is True
     assert json.loads(dst.read_text(encoding="utf-8"))["connected_platforms"] == ["airbnb"]
     assert [f.name for f in dst.parent.iterdir()] == ["channels.json"], "no temp file left behind"
+
+
+def test_a_raw_ssl_error_from_gemini_is_retried_not_a_crash():
+    """2026-09-29: ssl.SSLError (bad record mac) escaped httpx and killed five listings' scoring."""
+    import ssl
+
+    import analyze_photos as ap
+
+    calls = {"n": 0}
+
+    class Client:
+        async def post(self, *a, **kw):
+            calls["n"] += 1
+            raise ssl.SSLError("[SSL: SSLV3_ALERT_BAD_RECORD_MAC] bad record mac")
+
+    async def no_sleep(_):
+        return None
+
+    import asyncio as aio
+    real_sleep, aio.sleep = aio.sleep, no_sleep
+    try:
+        out = aio.run(ap._generate_scores(Client(), "gemini-2.5-flash", "k",
+                                          [({"order": 1, "url": "u"}, "image/jpeg", "eA==")],
+                                          {"api_calls": 0}, aio.Event(), 3))
+    finally:
+        aio.sleep = real_sleep
+    assert calls["n"] == 3, "every attempt is used"
+    assert out[0]["scored"] is False and "network" in out[0]["error"]

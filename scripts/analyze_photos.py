@@ -271,7 +271,9 @@ async def _generate_scores(client, model, key, prepared, stats, fatal, attempts)
             try:
                 r = await client.post(GEMINI_URL.format(model=model),
                     headers={"x-goog-api-key": key}, json=body, timeout=90)
-            except httpx.TransportError:
+            # OSError covers a raw ssl.SSLError that httpx does not wrap: a "bad record mac" blip
+            # crashed five listings' scoring outright (2026-09-29) instead of being retried.
+            except (httpx.TransportError, OSError):
                 if attempt + 1 == attempts:
                     return fail("Gemini request timed out or network unavailable")
                 await asyncio.sleep(2 ** attempt)
@@ -348,7 +350,7 @@ async def _score_batch(photos, model, key, concurrency, batch_size=DEFAULT_BATCH
                                                return_exceptions=True)
                 prepared, failed = [], []
                 for photo, got in zip(batch, fetched, strict=True):
-                    if isinstance(got, (httpx.HTTPError, ValueError, KeyError)):
+                    if isinstance(got, (httpx.HTTPError, ValueError, KeyError, OSError)):
                         failed.append({**photo, "scored": False, "error": "photo download failed or invalid image"})
                     elif isinstance(got, BaseException):
                         raise got
