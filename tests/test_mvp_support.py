@@ -139,6 +139,30 @@ def test_rendered_copy_and_machine_notes_follow_punctuation_rule(tmp_path):
         assert "\u2014" not in (tmp_path / "reports/cabin/2026-09-20" / name).read_text(encoding="utf-8")
 
 
+def test_no_branding_file_never_prints_the_example_placeholders(tmp_path):
+    data = report_data()
+    data["listing"]["city"] = "Sun Peaks"
+    (tmp_path / "result.json").write_text(json.dumps(data))
+    subprocess.run([sys.executable, str(ROOT / "scripts/render_report.py"),
+        "--data", str(tmp_path / "result.json"), "--listing-slug", "cabin",
+        "--date", "2026-09-20", "--out-base", str(tmp_path / "reports"),
+        "--branding", str(tmp_path / "no-branding.json")], check=True,
+        capture_output=True, text=True, encoding="utf-8")
+    out = tmp_path / "reports/cabin/2026-09-20"
+    for name in ("report.html", "report.md"):
+        text = (out / name).read_text(encoding="utf-8")
+        assert "Your Company" not in text and "Short-Term Rental Management" not in text
+        assert "· ·" not in text and "·  ·" not in text and "· <a href=\"\">" not in text
+    assert "**Cabin** · " in (out / "report.md").read_text(encoding="utf-8")
+
+
+def test_a_branding_file_still_wins(tmp_path):
+    brand = tmp_path / "branding.json"
+    brand.write_text(json.dumps({"company_name": "Solnest Stays", "tagline": "Hosts", "website_url": ""}))
+    assert rr.load_branding(brand, "Cabin")["company_name"] == "Solnest Stays"
+    assert rr.load_branding(tmp_path / "missing.json", "Cabin")["company_name"] == "Cabin"
+
+
 def test_failed_artifacts_cannot_reenter_a_report(tmp_path):
     (tmp_path / "pipeline_status.json").write_text(json.dumps({"status": "degraded",
         "excluded_files": ["photo_scores.json"], "steps": []}))

@@ -231,7 +231,7 @@
   {% endif %}
 
   <footer>
-    {{ data.branding.company_name }} · {{ data.branding.tagline }} · <a href="{{ data.branding.website_url }}">{{ data.branding.website_url }}</a><br>
+    {{ [data.branding.company_name, data.branding.tagline] | select | join(" · ") }}{% if data.branding.website_url %} · <a href="{{ data.branding.website_url }}">{{ data.branding.website_url }}</a>{% endif %}<br>
     {% if (data.photos or {}).gallery_source and data.photos.gallery_source.kind == 'live_airbnb' %}Paste-ready content: apply it directly on Airbnb (then match your PMS so the two stop drifting). Pricing, calendars, and availability are never touched.{% else %}Paste-ready content: apply it in your PMS, or ask Claude to apply it for you where your PMS supports content updates. Pricing, calendars, and availability are never touched.{% endif %}
   </footer>
 </div>

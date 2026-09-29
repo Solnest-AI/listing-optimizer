@@ -458,6 +458,17 @@ def _replace_em_dashes(text: str) -> str:
     return out
 
 
+def load_branding(path: Path, listing_name: str) -> dict:
+    """branding.json is per-user (gitignored). Without one, keep the example's colours and title
+    but never its placeholders: "Your Company" and a stock tagline would print on every report.
+    The listing's own name stands in for the brand."""
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    brand = json.loads((ROOT / "branding.example.json").read_text(encoding="utf-8-sig"))
+    brand.update(company_name=listing_name, tagline="", website_url="", logo_url="")
+    return brand
+
+
 def main():
     ap = argparse.ArgumentParser(description="Render optimized listing to HTML+MD+paste block.")
     ap.add_argument("--data", required=True, help="result JSON from the optimizer")
@@ -513,11 +524,7 @@ def main():
                                  + "\n  - ".join(wrong[:12]))
     except (OSError, ValueError) as e:
         sys.exit(f"[render_report] invalid result: {e}")
-    # branding.json is per-user (gitignored); fall back to the shipped example.
-    bpath = Path(args.branding)
-    if not bpath.exists():
-        bpath = ROOT / "branding.example.json"
-    data["branding"] = json.loads(bpath.read_text(encoding="utf-8-sig"))
+    data["branding"] = load_branding(Path(args.branding), (data.get("listing") or {}).get("name", ""))
 
     # Templates end in .html.j2, which select_autoescape(["html"]) does NOT match, so
     # decide autoescape by suffix: escape HTML, not Markdown.
