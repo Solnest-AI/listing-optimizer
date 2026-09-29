@@ -71,51 +71,15 @@ def test_numeric_and_string_ids_dedupe(monkeypatch):
     assert len(rows) == 1
 
 
-# ── The listing being optimized, from the comps call we already pay for ──────
-MUS = "https://a0.muscache.com/im/pictures/hosting/Hosting-1/original/"
-
-
-def subject_raw(lid, n_photos=32, count=None):
-    return {"listing_info": {"listing_id": lid, "listing_name": "Walk to Olde Town",
-                             "description": "Summary text", "cover_photo_url": MUS + "p0.jpeg",
-                             "photos_count": count if count is not None else n_photos,
-                             "photo_urls": [f"{MUS}p{i}.jpeg" for i in range(n_photos)],
-                             "guest_favorite": True},
-            "host_info": {"superhost": True},
-            "property_details": {"amenities": ["Wifi", "Dryer"]},
-            "ratings": {"num_reviews": 155, "rating_overall": 4.98},
-            "pricing_info": {"cleaning_fee": 175}, "booking_settings": {"min_nights": 2},
-            "performance_metrics": {"ttm_days_reserved": 200, "ttm_revenue": 55555}}
-
-
-def test_subject_listing_is_kept_from_the_comps_call_without_pricing(monkeypatch, tmp_path):
-    """Ryan 2026-09-26: AirROI returns the listing being optimized inside the comps pool we
-    already pay for; the code excluded it and threw its photos, copy and amenities away."""
+def test_the_listing_being_optimized_is_never_taken_from_airroi(monkeypatch, tmp_path):
+    """AirROI served last summer's copy of apres-arcade (2026-09-28). Its record of the subject
+    is neither kept nor fetched: the live Airbnb page is the only source for it."""
     monkeypatch.setattr(pc.cache, "CACHE_DIR", tmp_path)
-    async def fetch(**kw):
-        return [subject_raw(123), raw(456)], {"calls": 1, "path": "coords", "fallback_used": False}
-    monkeypatch.setattr(ac, "fetch_comps", fetch)
-    r = asyncio.run(pc._run(args(exclude_listing_id="123")))
-    s = r["subject_listing"]
-    assert s["title"] == "Walk to Olde Town" and len(s["photo_urls"]) == 32 and s["photos_count"] == 32
-    assert s["amenities"] == ["Wifi", "Dryer"] and s["num_reviews"] == 155 and s["guest_favorite"] is True
-    assert s["superhost"] is True
-    assert [c["listing_id"] for c in r["top_comps"]] == [456], "subject must still be excluded from comps"
-    blob = str(r) + "".join(p.read_text(encoding="utf-8") for p in tmp_path.glob("*.json"))
-    assert "55555" not in blob and "cleaning_fee" not in blob and "min_nights" not in blob
-    # A cached rerun still carries the subject listing, with zero paid calls.
-    r2 = asyncio.run(pc._run(args(exclude_listing_id="123")))
-    assert r2["fetch"]["calls"] == 0 and len(r2["subject_listing"]["photo_urls"]) == 32
 
-
-def test_subject_missing_from_pool_costs_one_listing_call(monkeypatch, tmp_path):
-    monkeypatch.setattr(pc.cache, "CACHE_DIR", tmp_path)
     async def fetch(**kw):
         return [raw(456)], {"calls": 1, "path": "coords", "fallback_used": False}
-    async def get_listing(lid, **kw):
-        return subject_raw(int(lid), n_photos=10)
+
     monkeypatch.setattr(ac, "fetch_comps", fetch)
-    monkeypatch.setattr(ac, "get_listing", get_listing)
+    assert not hasattr(ac, "get_listing"), "the paid subject lookup must not exist"
     r = asyncio.run(pc._run(args(exclude_listing_id="123")))
-    assert len(r["subject_listing"]["photo_urls"]) == 10
-    assert r["fetch"]["calls"] == 2 and r["fetch"]["subject_path"] == "listing endpoint"
+    assert "subject_listing" not in r and r["fetch"]["calls"] == 1

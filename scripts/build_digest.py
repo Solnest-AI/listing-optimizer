@@ -184,34 +184,15 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
     keys = ("name", "public_name", "summary", "description", "amenities",
             "capacity", "room_details", "house_rules")
     subject = {k: s.get(k) for k in keys}
-    # The live Airbnb copy, when RankBreeze/IntelliHost supplied it, is what guests read and
-    # what the report must critique. The PMS copy can differ (Boho Bliss 2026-09-26).
+    # The live listing, read from its public Airbnb page THIS run, is what guests read and what
+    # the report must critique. Provider copies (RankBreeze, IntelliHost, AirROI) are stored
+    # snapshots and are never used: they served last summer's Apres Arcade and mixed amenity
+    # boxes between two houses (2026-09-28). The PMS copy can also differ (Boho Bliss 2026-09-26).
     lg_file = read("live_gallery.json") or {}
-    live, live_provider = (lg_file.get("listing") or {}), lg_file.get("provider")
+    live = (lg_file["listing"] if lg_file.get("provider") == "airbnb" and isinstance(lg_file.get("listing"), dict)
+            else {})
     comps_file = read("comps.json") or {}
-    if not live and isinstance(comps_file.get("subject_listing"), dict):
-        # AirROI's record of this listing, from the comps call already made.
-        sub = comps_file["subject_listing"]
-        live = {"title": sub.get("title") or "", "summary": "", "description": sub.get("description") or "",
-                "amenities": sub.get("amenities") or [], "rating_overall": sub.get("rating_overall"),
-                "num_reviews": sub.get("num_reviews"), "guest_favorite": sub.get("guest_favorite"),
-                "superhost": sub.get("superhost")}
-        live_provider = "airroi"
-    if live and live_provider != "airroi" and isinstance(comps_file.get("subject_listing"), dict):
-        for k in ("rating_overall", "num_reviews", "guest_favorite", "superhost"):
-            if live.get(k) is None:  # the live provider wins; AirROI only fills gaps
-                live[k] = comps_file["subject_listing"].get(k)
     drift = []
-    if live_provider == "airroi" and isinstance(live.get("description"), str) and live["description"].strip():
-        # AirROI's text is the summary followed by the full description.
-        full = amenities.norm(live["description"])
-        if subject.get("summary") and not full.startswith(amenities.norm(subject["summary"])):
-            drift.append("summary")
-        if subject.get("description") and _says_more(
-                live["description"], f"{subject.get('summary') or ''} {subject['description']}"):
-            drift.append("description")
-        subject["description"] = live["description"]
-        live = {**live, "description": ""}  # handled; the generic loop below skips it
     for field, live_key in (("public_name", "title"), ("summary", "summary"), ("description", "description")):
         lv = live.get(live_key)
         if isinstance(lv, str) and lv.strip():
@@ -230,28 +211,32 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
         A("# OWNER NOTES (confirmed by the owner; they override conflicting source data)\n" + "\n".join(notes) + "\n")
     A("# SUBJECT\n" + json.dumps(subject, ensure_ascii=False))
     if live:
-        facts = []
-        if live.get("rating_overall") and live.get("num_reviews"):
-            facts.append(f"{live['rating_overall']} over {live['num_reviews']} reviews")
-        facts += [label for key, label in (("guest_favorite", "Guest Favorite"), ("superhost", "Superhost"))
-                  if live.get(key) is True]
-        if facts:
-            A("live_airbnb_facts: " + " · ".join(facts))
         access = " ".join(live["guest_access"].split()) if isinstance(live.get("guest_access"), str) else ""
-        if access and _registration_only(access):
+        if not access:
+            A("guest_access (live Airbnb): EMPTY. The live listing has no Guest access section. Write one.")
+        elif _registration_only(access):
             A("guest_access (live Airbnb): EMPTY. The field holds only a registration number, so guests "
               "see no Guest access section. Write one.")
-        elif access:
+        else:
             # Door codes and passwords never reach Claude's context or the report.
             access, hidden = secrets_scan.redact(access)
             A("guest_access (live Airbnb): " + access[:600]
               + "  (check the headline copy does not contradict this)"
               + (f"  ({hidden} code/password redacted: tell the owner to move it to the check-in "
                  "message, never the public listing)" if hidden else ""))
-        A(f"copy_source: LIVE Airbnb listing via {live_provider} (title/summary/description above are what "
-          f"guests read now)"
+        if isinstance(live.get("other_notes"), str) and live["other_notes"].strip():
+            notes_text, _ = secrets_scan.redact(" ".join(live["other_notes"].split()))
+            A("other_notes (live Airbnb): " + notes_text[:900])
+        if live.get("not_included"):
+            A("not_included (live Airbnb, shown to guests as not offered): " + "; ".join(live["not_included"]))
+        A(f"copy_source: LIVE Airbnb page, read this run ({lg_file.get('fetched_at')}). Title, summary, "
+          f"description and amenity boxes above are what guests see now"
           + (f". PMS copy differs from live Airbnb: {', '.join(drift)}. Say so; edits made only in the PMS "
              f"may not be reaching Airbnb." if drift else ". PMS copy matches."))
+    else:
+        A("copy_source: PMS copy ONLY. The live Airbnb page could not be read this run, so nothing here is "
+          "verified as what guests see. Do not report drift, live amenity boxes or live captions as facts; "
+          "a question about the live listing goes in host_to_confirm.")
     problems = [s for s in status.get("steps", []) if s.get("status") == "FAILED"]
     if problems:
         A("DATA GAPS: " + "; ".join(f"{s['name']}: {s['detail']}" for s in problems))
@@ -316,7 +301,7 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
       f"reshoot={p.get('reshoot')} restage={p.get('restage')}")
     src = p.get("gallery_source") or {}
     if src.get("kind") == "live_airbnb":
-        A(f"gallery: LIVE Airbnb gallery via {src.get('provider')} (fetched {src.get('fetched_at')}). "
+        A(f"gallery: LIVE Airbnb gallery, read from the public page {src.get('fetched_at')}. "
           f"Photo numbers are Airbnb positions (1 = the current cover). Caption and reorder by these."
           + ("" if src.get("complete", True) else
              f" INCOMPLETE: {src.get('returned')} of {src.get('reported')} photos returned; say the "

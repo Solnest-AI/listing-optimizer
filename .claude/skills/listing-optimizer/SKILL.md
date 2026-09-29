@@ -104,39 +104,30 @@ read tools are connected. Pull metrics and rankings once, save `funnel.json`, th
 with `scripts/build_digest.py <workdir>`. Never fetch competitor rates. Listing views are
 visits; search impressions are appearances. Treat scraped occupancy as a cross-check.
 
-## 2a. Live Airbnb gallery (which photos guests actually see)
+## 2a. The live Airbnb listing (what guests actually see)
 
-The PMS copy of a gallery can differ from the live Airbnb listing (measured: PMS 54 photos
-with a collage cover, Airbnb 32 with a different cover and captions). The pipeline ranks the
-live gallery when it can, in this order:
+Every run reads the listing's public Airbnb page once (free, no key): title, summary, The
+space, Guest access, Other things to note, the full amenity list (and what it shows as not
+included) and the photo gallery in order with the host's captions. That read is the ONLY
+source of live Airbnb facts about the listing being optimized. It is never reused from an
+earlier run.
 
-1. RankBreeze (`RANKBREEZE_MCP_URL` in `.env`, or its server already connected in Claude
-   Code, found automatically): full gallery, live order and captions.
-2. IntelliHost (`INTELLIHOST_MCP_TOKEN`, or its connection in Claude Code): live order, no
-   captions, Premium-gated per property. Its stored gallery can drop the tail (measured: first
-   29 of 42), so a short list is marked incomplete, never treated as the whole gallery.
-   AirROI (every member, no setup): the comps call already returns this listing's own Airbnb
-   record (live order, title, full text, amenities, rating, Guest Favorite, Superhost) at no
-   extra call. It is the default live source, and it replaces an incomplete IntelliHost list.
-   AirROI can hold only Airbnb's 5-photo top grid; then the PMS gallery is ranked for coverage
-   and AirROI still supplies the live copy and amenities.
-3. Connected only as a claude.ai connector (not in Claude Code's config): before running the
-   pipeline, stage `output/<DATE>/<SLUG>/live_gallery.json` yourself. RankBreeze:
-   `get_user_listings` (follow `nextCursor`) to find the row whose `room_id` is the Airbnb id,
-   then `get_listing_content` with `include_images: true`. IntelliHost: `list-properties-tool`,
-   match `listing_id`, then `get-listing-details-tool` with `include_photos: true,
-   photo_limit: 50`, positions 1..N, `complete` = returned >= `photo_count`. Write
-   `{"provider":"rankbreeze"|"intellihost","room_id":"","fetched_at":"","complete":true,
-   "returned":N,"reported":N,"photos":[{"position":1,"url":"https://a0.muscache.com/...","caption":""}],
-   "listing":{"title":"","summary":"","description":"","amenities":[]}}`. RankBreeze `listing`:
-   title, short_description, long_description (turn `<br />` into line breaks), amenities.
-   IntelliHost: title and description only, `amenities` null. Copy text and URLs exactly.
-   Never copy prices, fees or minimum stays into it.
-4. Neither: the PMS gallery is ranked and the report says it was not checked against Airbnb.
+Provider copies of the listing (RankBreeze, IntelliHost, AirROI) are stored snapshots and are
+never used for it, not even as a fallback. Measured 2026-09-28: RankBreeze and AirROI served
+last summer's Après Arcade, and RankBreeze gave two different houses the same wrong amenity
+boxes ("Shared hot tub", "TEKA stainless steel oven", "wood-burning" fireplace). Do not stage
+`live_gallery.json` from any provider or MCP tool; the pipeline rejects anything that is not
+its own page read. AirROI is used for competitor comps only.
 
-With a live gallery, photo numbers are Airbnb positions (1 = current cover) and captions are
-edited on Airbnb. The digest's copy and amenity gaps then come from the live listing too
-(`copy_source`, `missing_on_live_airbnb`); if it says the PMS copy differs, report that. Say which gallery the plan uses; never present PMS findings as Airbnb facts.
+If the page cannot be read or is incomplete, nothing live is used: the photo plan and copy come
+from the PMS, the digest says `copy_source: PMS copy ONLY`, and the report says it was not
+checked against Airbnb. Then never state anything about the live listing (drift, amenity
+boxes, captions) as fact; a question about it goes in `host_to_confirm`.
+
+With a live read, photo numbers are Airbnb positions (1 = current cover), captions are edited
+on Airbnb, and the digest's copy and amenity gaps come from the live page (`copy_source`,
+`missing_on_live_airbnb`); if it says the PMS copy differs, report that. Say which gallery the
+plan uses; never present PMS findings as Airbnb facts.
 
 ## 2b. Photo fallback (only when the digest says PHOTO FALLBACK REQUIRED)
 
@@ -175,9 +166,13 @@ Title: at most 50 characters, aim 32..45, sentence case, no emojis. Summary: at 
 500 characters, front-load the persuasive first 295. The Space: strongest facts first,
 bullets welcome. Captions: at most 250 characters each. No phone/email/URLs in copy.
 Caption every photo the host keeps (full coverage): the Photo Plan's top five first, in its
-order, then the rest in gallery order. A photo you recommend deleting goes in
-`optimized.remove_orders` instead of getting a caption; a detected duplicate left uncaptioned
-counts the same. The renderer warns about any kept photo without a caption.
+order, then the rest in gallery order. Only a detected duplicate (the digest's duplicate check)
+or a photo flagged for reshoot may go in `optimized.remove_orders`; the renderer rejects any
+other. Never call photos duplicates or near duplicates unless the digest's duplicate check lists
+them. A gallery you think is too long is a suggestion in the Photos channel `fix` with its
+reason, never a delete list. The renderer warns about any kept photo without a caption.
+Live copy and amenity boxes come only from the digest's `copy_source: LIVE Airbnb page`. When
+it says `PMS copy ONLY`, make no claim about the live listing; ask in `host_to_confirm`.
 Write the four lower sections too (`guest_access`, `other_notes`, `neighborhood`,
 `getting_around`) by `references/description-sections.md`: digest facts only, names and
 minutes, honest negatives, each deal-breaker twice, no codes, address or fees. Skip Interaction

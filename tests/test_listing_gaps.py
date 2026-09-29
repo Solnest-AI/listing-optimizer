@@ -20,7 +20,7 @@ import render_report as rr
 def _workdir(tmp_path, amenities=("Wifi",), **listing):
     base = {"title": "T", "summary": "S", "description": "", "amenities": list(amenities)}
     base.update(listing)
-    (tmp_path / "live_gallery.json").write_text(json.dumps({"provider": "rankbreeze", "listing": base}))
+    (tmp_path / "live_gallery.json").write_text(json.dumps({"provider": "airbnb", "listing": base}))
     return tmp_path
 
 
@@ -115,13 +115,20 @@ def test_report_shows_detected_and_writer_gaps(tmp_path):
 
 
 def test_digest_shows_ticked_amenities_and_required_disclosures(tmp_path):
-    from test_live_gallery import GOOD, _airroi_subject
+    from test_live_gallery import GOOD
     (tmp_path / "subject.json").write_text(json.dumps({"data": {"name": "x", "public_name": "T", "summary": "S"}}))
     (tmp_path / "comps.json").write_text(json.dumps({"comp_count": 1, "top_comps": [], "comp_title_samples": [],
-        "market_amenity_frequency": [{"amenity": "Wifi", "pct": 100}], "subject_listing": _airroi_subject(5)}))
+        "market_amenity_frequency": [{"amenity": "Wifi", "pct": 100}]}))
     (tmp_path / "live_gallery.json").write_text(json.dumps({**GOOD, "listing": {
         "title": "T", "summary": "S", "description": "",
         "amenities": ["Wifi", "Smart lock", "Exterior security cameras on property"]}}))
     out = bd.build(tmp_path)
     assert "ticked_on_live_airbnb" in out and "Smart lock" in out
     assert "DISCLOSURE REQUIRED: Exterior security cameras" in out
+
+
+def test_a_provider_snapshot_never_produces_a_live_gap(tmp_path):
+    """RankBreeze's stale "Shared hot tub" box must never become a claim about the live listing."""
+    (tmp_path / "live_gallery.json").write_text(json.dumps({"provider": "rankbreeze", "listing": {
+        "title": "T", "amenities": ["Shared hot tub"], "guest_access": ""}}))
+    assert lg.detect(tmp_path, {"the_space": "Private hot tub on the deck."}) == []

@@ -28,9 +28,9 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
+import airbnb_live
 import artifacts
 import console
-import live_gallery
 
 ROOT = Path(__file__).resolve().parent.parent
 PY = sys.executable
@@ -83,35 +83,31 @@ def hosp(sub: str, out: Path, pid: str, extra=()) -> list:
 
 
 def live_gallery_step(wd: Path, room_id, runner=None) -> tuple[str, str]:
-    """Build images.json from the LIVE Airbnb gallery when a source can supply it.
+    """Read the live listing (copy, amenities, photo gallery) from its public Airbnb page.
 
-    The PMS copy of a gallery can differ from what guests see (measured: PMS 54 photos with
-    a collage cover, Airbnb 32 with a different cover). Order: a configured RankBreeze or
-    IntelliHost key fetches fresh; otherwise a live_gallery.json the agent staged from its
-    own connected MCP tools; otherwise the PMS gallery, and the report says so.
-    Returns ("ok" | "skipped", detail). Only "ok" writes images.json.
+    The ONLY source of live Airbnb facts about the listing being optimized. Provider copies
+    (RankBreeze, IntelliHost, AirROI) are stored snapshots and are never used for it: they
+    served last summer's Apres Arcade and mixed amenity boxes between two houses
+    (2026-09-28). No page, no live facts: the PMS copy is used and labelled unverified.
+    Returns ("ok" | "skipped", detail). Only "ok" writes live_gallery.json and images.json.
     """
     runner = runner or run
     target = wd / "live_gallery.json"
-    fallback = "photo plan uses the PMS gallery"
-    if room_id and live_gallery.configured_sources():
+    target.unlink(missing_ok=True)  # never reuse an earlier read: it is only valid when fresh
+    fallback = "photo plan and copy use the PMS, NOT verified against the live Airbnb listing"
+    if not room_id:
+        return "skipped", f"no Airbnb listing id in subject.json; {fallback}"
+    ok, msg = runner([PY, SCRIPTS / "airbnb_live.py", "--room-id", room_id, "--out", target], "live page")
+    if not ok:
         target.unlink(missing_ok=True)
-        ok, msg = runner([PY, SCRIPTS / "live_gallery.py", "--room-id", room_id, "--out", target],
-                         "live gallery")
-        if not ok:
-            return "skipped", f"{msg[:160]}; {fallback}"
-        detail = msg
-    elif target.exists():
-        detail = "using the agent-staged live_gallery.json"
-    else:
-        why = "no RankBreeze or IntelliHost connection" if room_id else "no Airbnb listing id in subject.json"
-        return "skipped", f"{why}; {fallback}"
+        return "skipped", f"{msg[:160]}; {fallback}"
     try:
-        gallery = live_gallery.validate(json.loads(target.read_text(encoding="utf-8-sig")))
+        gallery = airbnb_live.validate(json.loads(target.read_text(encoding="utf-8-sig")))
     except (OSError, ValueError) as e:
-        return "skipped", f"live_gallery.json is invalid ({str(e)[:80]}); {fallback}"
-    artifacts.write_json(wd / "images.json", live_gallery.to_images(gallery))
-    return "ok", detail
+        target.unlink(missing_ok=True)
+        return "skipped", f"live page read is invalid ({str(e)[:80]}); {fallback}"
+    artifacts.write_json(wd / "images.json", airbnb_live.to_images(gallery))
+    return "ok", msg
 
 
 def count_stays(rows, start: str, end: str) -> int:
@@ -140,44 +136,6 @@ def comps_problem(wd: Path) -> str | None:
     return None
 
 
-def live_gallery_incomplete(wd: Path) -> bool:
-    try:
-        return json.loads((wd / "live_gallery.json").read_text(encoding="utf-8-sig")).get("complete") is False
-    except (OSError, ValueError, AttributeError):
-        return False
-
-
-def airroi_gallery_step(wd: Path) -> tuple[str, str]:
-    """After comps: use AirROI's record of the listing (already in comps.json, no extra call)
-    as the live gallery when nothing better supplied one. A top-grid-only list is not used as
-    the gallery; the PMS copy keeps full coverage and AirROI still supplies copy/amenities."""
-    try:
-        comps = json.loads((wd / "comps.json").read_text(encoding="utf-8-sig"))
-        pms = json.loads((wd / "images.json").read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError):
-        return "skipped", "no comps.json or images.json to compare"
-    items = pms.get("data") if isinstance(pms, dict) else pms
-    gallery = live_gallery.from_airroi_subject(comps.get("subject_listing"), len(items or []))
-    if gallery is None or not gallery["photos"]:
-        return "skipped", "AirROI has no record of this listing's photos; photo plan uses the PMS gallery"
-    if not gallery["complete"]:
-        return "skipped", (f"{gallery['incomplete_reason']} (top {gallery['returned']} only); photo plan "
-                           f"uses the PMS gallery, AirROI still supplies the live copy and amenities")
-    fetch = comps.get("fetch") or {}
-    # The subject's own record can be cached while the pool is fresh; its age is what counts.
-    age = fetch.get("subject_cache_age_days",
-                    fetch.get("cache_age_days") if fetch.get("path") == "cache" else None)
-    gallery["fetched_at"] = (f"AirROI data cached {age} days ago" if age is not None
-                             else "AirROI pull on the run date")
-    try:
-        live_gallery.validate(gallery)
-    except ValueError as e:
-        return "skipped", f"AirROI gallery invalid ({str(e)[:80]}); photo plan uses the PMS gallery"
-    artifacts.write_json(wd / "live_gallery.json", gallery)
-    artifacts.write_json(wd / "images.json", live_gallery.to_images(gallery))
-    return "ok", f"AirROI: {gallery['returned']} live Airbnb photos from the comps pool (no extra call)"
-
-
 def _copy_atomic(src: Path, dst: Path) -> bool:
     """Copy a file so a concurrent reader never sees half of it. False if src is unusable."""
     try:
@@ -189,6 +147,14 @@ def _copy_atomic(src: Path, dst: Path) -> bool:
         return True
     except (OSError, ValueError):
         return False
+
+
+def _image_source(path: Path) -> str | None:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
+        return (raw.get("_source") or {}).get("kind")
+    except (OSError, ValueError, AttributeError):
+        return None
 
 
 def _tag_pms_images(path: Path, provider: str) -> None:
@@ -371,22 +337,30 @@ def main():
         print(f"[run_pipeline] 1 step(s) failed: subject: {subject_step.detail}")
         sys.exit(1)
 
-    # ── Images: the live Airbnb gallery when a source can supply it, else the PMS copy ──
-    if "photos" in skip:
-        steps.append(Step("live gallery").skip("--skip photos"))
-        steps.append(Step("images").skip("--skip photos"))
+    # ── Live listing: the public Airbnb page, read fresh every run (copy, amenities, photos).
+    # Free, and the only live source: provider snapshots are never used for this listing. ──
+    live = Step("live Airbnb page")
+    steps.append(live)
+    status, detail = live_gallery_step(wd, params.get("airbnb_id"))
+    live_ok = status == "ok"
+    if live_ok:
+        live.done(detail)
+        usable.add("live_gallery.json")
     else:
-        live = Step("live gallery")
-        steps.append(live)
-        status, detail = live_gallery_step(wd, params.get("airbnb_id"))
-        if status == "ok":
-            live.done(detail)
-            usable.update({"images.json", "live_gallery.json"})
-            steps.append(Step("images").skip("live Airbnb gallery used instead of the PMS copy"))
-        else:
-            live.skip(detail)
-            if gather("images", "images", "images.json").status != "FAILED":
-                _tag_pms_images(wd / "images.json", "Hospitable" if args.pid else "staged PMS files")
+        live.skip(detail)
+
+    # ── Images: the live Airbnb gallery, else the PMS copy ──
+    if "photos" in skip:
+        steps.append(Step("images").skip("--skip photos"))
+    elif live_ok:
+        usable.add("images.json")
+        steps.append(Step("images").skip("live Airbnb gallery used instead of the PMS copy"))
+    else:
+        if _image_source(wd / "images.json") == "live_airbnb":
+            # A live gallery from an earlier read is not current and is not the PMS copy.
+            (wd / "images.json").unlink(missing_ok=True)
+        if gather("images", "images", "images.json").status != "FAILED":
+            _tag_pms_images(wd / "images.json", "Hospitable" if args.pid else "staged PMS files")
     gather("reviews", "reviews", "reviews.json",
            ("--all-reviews",) if args.all_reviews else ("--review-limit", str(args.review_limit)))
 
@@ -522,20 +496,6 @@ def main():
             st.fail(problem) if problem else st.done(msg)
         else:
             st.fail(msg)
-
-    # ── Live gallery from AirROI when neither RankBreeze nor IntelliHost supplied one ──
-    live_steps = [x for x in steps if x.name == "live gallery"]
-    if (live_steps and (live_steps[0].status != "ok" or live_gallery_incomplete(wd))
-            and "comps.json" in usable and "photos" not in skip):
-        status, detail = airroi_gallery_step(wd)
-        if status == "ok":
-            live_steps[0].done(detail)
-            usable.update({"images.json", "live_gallery.json"})
-            for x in steps:
-                if x.name == "images" and x.status == "ok":
-                    x.done("PMS images replaced by the live AirROI gallery")
-        elif live_steps[0].status != "ok":
-            live_steps[0].skip(f"{live_steps[0].detail}; {detail}")
 
     # ── Photo scoring (Gemini; cached per photo URL) ──
     st = Step("photos (Gemini)")

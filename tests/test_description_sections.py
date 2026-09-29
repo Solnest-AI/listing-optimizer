@@ -106,16 +106,14 @@ def test_ordinary_copy_is_not_mistaken_for_codes_or_addresses(text):
     ("Private entrance at the back. Provincial registration number: H000000000", False),
 ])
 def test_registration_numbers_are_not_a_guest_access_section(text, empty):
-    """apres-arcade 2026-09-26: RankBreeze returned the registration numbers as Guest access;
+    """apres-arcade 2026-09-26: the Guest access field held only registration numbers;
     the live listing shows no Guest access section at all."""
     assert bd._registration_only(" ".join(text.split())) is empty
 
 
 def test_digest_says_guest_access_is_empty_when_it_holds_only_registration(tmp_path):
-    from test_live_gallery import GOOD, _airroi_subject
+    from test_live_gallery import GOOD
     (tmp_path / "subject.json").write_text(json.dumps({"data": {"name": "x", "public_name": "T", "summary": "S"}}))
-    (tmp_path / "comps.json").write_text(json.dumps({"comp_count": 0, "top_comps": [], "market_amenity_frequency": [],
-        "comp_title_samples": [], "subject_listing": _airroi_subject(5)}))
     (tmp_path / "live_gallery.json").write_text(json.dumps({**GOOD, "listing": {
         "title": "T", "summary": "S", "description": "", "amenities": [],
         "guest_access": "Provincial registration number: H000000000"}}))

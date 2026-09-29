@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Tests for live_gallery.py — the photo set guests actually see on Airbnb.
+"""The live listing guests see: read from the public Airbnb page every run, nothing else.
 
-Measured 2026-09-25 on a real listing: the PMS (Hospitable) held 54 photos with a collage
-cover and 16 duplicate pairs; the live Airbnb listing had 32 photos, a different cover and
-different captions. A photo plan built on the PMS copy was wrong for Airbnb. Payload shapes
-below are the real RankBreeze / IntelliHost MCP shapes (values synthetic).
+Measured 2026-09-25: the PMS held 54 photos with a collage cover while the live Airbnb
+listing had 32, a different cover and different captions. Measured 2026-09-28: provider
+copies (RankBreeze, AirROI) served last summer's listing and mixed amenity boxes between two
+houses, so they are never used for the listing being optimized.
 """
 import json
 import sys
@@ -13,151 +13,81 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-import live_gallery as lg
+import airbnb_live as al
+import run_pipeline as rp
 
 MUS = "https://a0.muscache.com/im/pictures/hosting/Hosting-1/original/"
 
-
-class FakeSession:
-    def __init__(self, responses):
-        self.responses, self.calls = responses, []
-
-    def call(self, tool, args):
-        self.calls.append((tool, args))
-        r = self.responses[tool]
-        if isinstance(r, Exception):
-            raise r
-        return r(args) if callable(r) else r
-
-
-def _rb(images, room="111"):
-    return FakeSession({
-        "get_user_listings": {"listings": [{"id": 9, "room_id": room}], "nextCursor": None},
-        "get_listing_content": {"room_id": room, "fetched_at": "2026-09-26T07:00:00Z",
-                                "base_price": 250, "min_nights": 2, "images": images}})
-
-
-def test_rankbreeze_gallery_keeps_order_and_captions_and_drops_pricing():
-    imgs = [{"position": 1, "url": MUS + "a.png", "caption": "Dining room"},
-            {"position": 2, "url": MUS + "b.png", "caption": None}]
-    g = lg.from_rankbreeze(_rb(imgs), "111")
-    assert [p["position"] for p in g["photos"]] == [1, 2]
-    assert g["photos"][0]["caption"] == "Dining room" and g["photos"][1]["caption"] == ""
-    assert g["provider"] == "rankbreeze" and g["complete"] is True
-    assert "250" not in json.dumps(g), "a price field leaked into the gallery"
-
-
-def test_rankbreeze_follows_the_listing_cursor():
-    pages = {None: {"listings": [{"id": 1, "room_id": "x"}], "nextCursor": "c2"},
-             "c2": {"listings": [{"id": 9, "room_id": "111"}], "nextCursor": None}}
-    s = FakeSession({"get_user_listings": lambda a: pages[a.get("cursor")],
-                     "get_listing_content": {"images": [{"position": 1, "url": MUS + "a.png"}]}})
-    assert lg.from_rankbreeze(s, "111")["photos"]
-    assert ("get_listing_content", {"listing_id": "9", "include_images": True}) in s.calls
-
-
-def test_listing_not_in_account_is_a_named_miss():
-    s = FakeSession({"get_user_listings": {"listings": [], "nextCursor": None}})
-    with pytest.raises(lg.GalleryUnavailable, match="not in this RankBreeze account"):
-        lg.from_rankbreeze(s, "111")
-
-
-def _ih(photos, count, room="111", locked=False):
-    details = (lg.MCPError("get-listing-details-tool: An IntelliHost Premium subscription is "
-                           "required to read that property through the API.")
-               if locked else {"listing_id": room, "photo_count": count, "price": 300,
-                               "cleaning_fee": 90, "minimum_nights": 3, "photos": photos})
-    return FakeSession({"list-properties-tool": {"count": 1, "properties": [{"id": 5, "listing_id": room}]},
-                        "get-listing-details-tool": details})
-
-
-def test_intellihost_short_list_is_marked_incomplete():
-    """IntelliHost returned 29 of 42 on a real listing whatever photo_limit was set."""
-    photos = [{"url": f"{MUS}{i}.jpg"} for i in range(29)]
-    g = lg.from_intellihost(_ih(photos, 42), "111")
-    assert g["complete"] is False and g["returned"] == 29 and g["reported"] == 42
-    assert [p["position"] for p in g["photos"]] == list(range(1, 30))
-    for word in ("300", "cleaning", "minimum"):
-        assert word not in json.dumps(g), f"{word} leaked from the IntelliHost payload"
-
-
-def test_intellihost_premium_lock_is_explained():
-    with pytest.raises(lg.GalleryUnavailable, match="Premium"):
-        lg.from_intellihost(_ih([], 0, locked=True), "111")
+GOOD = {"provider": "airbnb", "room_id": "111", "fetched_at": "2026-09-28T20:00:00Z",
+        "complete": True, "returned": 2, "reported": 2,
+        "photos": [{"position": 1, "url": MUS + "a.png", "caption": "Dining"},
+                   {"position": 2, "url": MUS + "b.png", "caption": ""}],
+        "listing": {"title": "T", "summary": "S", "description": "", "guest_access": "",
+                    "other_notes": "", "amenities": [], "not_included": []}}
 
 
 def test_images_contract_uses_airbnb_positions():
-    g = {"provider": "rankbreeze", "fetched_at": "t", "room_id": "111", "complete": True,
-         "returned": 1, "reported": 1,
-         "photos": [{"position": 7, "url": MUS + "a.png", "caption": "Yard"}]}
-    im = lg.to_images(g)
+    g = {**GOOD, "photos": [{"position": 7, "url": MUS + "a.png", "caption": "Yard"}]}
+    im = al.to_images(g)
     assert im["data"][0]["order"] == 7 and im["data"][0]["caption"] == "Yard"
     assert im["data"][0]["url"].endswith("?im_w=1200") and im["data"][0]["thumbnail_url"].endswith("?im_w=480")
-    assert im["_source"]["kind"] == "live_airbnb" and im["_source"]["provider"] == "rankbreeze"
+    assert im["_source"]["kind"] == "live_airbnb" and im["_source"]["provider"] == "airbnb"
 
 
 @pytest.mark.parametrize("bad", [
     {"photos": []},
     {"photos": [{"position": 1, "url": "http://evil.example/x.jpg"}]},
     {"photos": [{"position": 1, "url": MUS + "a.png"}, {"position": 1, "url": MUS + "b.png"}]},
+    {"listing": None},
 ])
-def test_agent_staged_gallery_is_validated(bad):
-    """A connector user's agent writes live_gallery.json by hand; a bad file must not
-    silently become the gallery."""
+def test_a_malformed_live_read_is_rejected(bad):
     with pytest.raises(ValueError):
-        lg.validate({"provider": "rankbreeze", **bad})
+        al.validate({**GOOD, **bad})
 
 
-def test_source_order_prefers_the_complete_provider(monkeypatch):
-    monkeypatch.setattr(lg, "CLAUDE_CONFIGS", [])
-    monkeypatch.setenv("RANKBREEZE_MCP_URL", "https://app.rankbreeze.com/api/mcp/x")
-    monkeypatch.setenv("INTELLIHOST_MCP_TOKEN", "t")
-    assert [name for name, _ in lg.configured_sources()] == ["rankbreeze", "intellihost"]
-    monkeypatch.delenv("RANKBREEZE_MCP_URL")
-    assert [name for name, _ in lg.configured_sources()] == ["intellihost"]
+@pytest.mark.parametrize("provider", ["rankbreeze", "intellihost", "airroi", None])
+def test_a_provider_snapshot_is_never_accepted_as_the_live_listing(provider):
+    with pytest.raises(ValueError, match="live Airbnb page"):
+        al.validate({**GOOD, "provider": provider})
 
 
-# ── Pipeline wiring: which gallery the photo plan is built on ─────────────────
-import run_pipeline as rp  # noqa: E402
-
-GOOD = {"provider": "rankbreeze", "room_id": "111", "fetched_at": "2026-09-26T07:00:00Z",
-        "complete": True, "returned": 2, "reported": 2,
-        "photos": [{"position": 1, "url": MUS + "a.png", "caption": "Dining"},
-                   {"position": 2, "url": MUS + "b.png", "caption": ""}]}
+def _runner_writing(gallery):
+    def runner(cmd, label):
+        Path(cmd[cmd.index("--out") + 1]).write_text(json.dumps(gallery), encoding="utf-8")
+        return True, "[airbnb_live] live page read"
+    return runner
 
 
-def test_agent_staged_live_gallery_becomes_the_images(tmp_path, monkeypatch):
-    """Connector users: the agent saves live_gallery.json from the RankBreeze/IntelliHost
-    tools it has in Claude; the pipeline builds images.json from it."""
-    monkeypatch.setattr(lg, "configured_sources", lambda: [])
-    (tmp_path / "live_gallery.json").write_text(json.dumps(GOOD))
-    status, detail = rp.live_gallery_step(tmp_path, "111")
-    assert status == "ok" and "agent-staged" in detail
+def test_a_live_page_read_becomes_the_images(tmp_path):
+    status, _ = rp.live_gallery_step(tmp_path, "111", runner=_runner_writing(GOOD))
     im = json.loads((tmp_path / "images.json").read_text(encoding="utf-8"))
-    assert im["_source"]["kind"] == "live_airbnb" and [d["order"] for d in im["data"]] == [1, 2]
+    assert status == "ok" and im["_source"]["kind"] == "live_airbnb" and [d["order"] for d in im["data"]] == [1, 2]
 
 
-def test_no_connection_falls_back_to_the_pms_gallery_and_says_so(tmp_path, monkeypatch):
-    monkeypatch.setattr(lg, "configured_sources", lambda: [])
-    status, detail = rp.live_gallery_step(tmp_path, "111")
-    assert status == "skipped" and "PMS gallery" in detail
-    assert not (tmp_path / "images.json").exists()
+def test_an_earlier_read_is_never_reused(tmp_path):
+    """A live read is only valid on the run that made it."""
+    (tmp_path / "live_gallery.json").write_text(json.dumps(GOOD))
+    status, detail = rp.live_gallery_step(tmp_path, "111", runner=lambda cmd, label: (False, "page: HTTP 403"))
+    assert status == "skipped" and "NOT verified" in detail
+    assert not (tmp_path / "live_gallery.json").exists()
 
 
-def test_failed_fetch_falls_back_without_touching_images(tmp_path, monkeypatch):
-    monkeypatch.setattr(lg, "configured_sources", lambda: [("rankbreeze", {"url": "u"})])
+def test_no_airbnb_id_falls_back_to_the_pms_and_says_so(tmp_path):
+    status, detail = rp.live_gallery_step(tmp_path, None)
+    assert status == "skipped" and "PMS" in detail and not (tmp_path / "images.json").exists()
+
+
+def test_failed_read_falls_back_without_touching_images(tmp_path):
     (tmp_path / "images.json").write_text('{"data": []}')
-    status, detail = rp.live_gallery_step(tmp_path, "111",
-                                          runner=lambda cmd, label: (False, "live gallery: exit 1 - nope"))
-    assert status == "skipped" and "PMS gallery" in detail
+    status, _ = rp.live_gallery_step(tmp_path, "111", runner=lambda cmd, label: (False, "live page: exit 1"))
+    assert status == "skipped"
     assert json.loads((tmp_path / "images.json").read_text(encoding="utf-8")) == {"data": []}
 
 
-def test_invalid_staged_gallery_is_not_used(tmp_path, monkeypatch):
-    monkeypatch.setattr(lg, "configured_sources", lambda: [])
-    (tmp_path / "live_gallery.json").write_text(json.dumps({**GOOD, "photos": []}))
-    status, _ = rp.live_gallery_step(tmp_path, "111")
+def test_a_snapshot_written_in_place_of_a_live_read_is_not_used(tmp_path):
+    status, _ = rp.live_gallery_step(tmp_path, "111", runner=_runner_writing({**GOOD, "provider": "rankbreeze"}))
     assert status == "skipped" and not (tmp_path / "images.json").exists()
+    assert not (tmp_path / "live_gallery.json").exists()
 
 
 def test_digest_names_the_gallery_source(tmp_path):
@@ -165,10 +95,8 @@ def test_digest_names_the_gallery_source(tmp_path):
     (tmp_path / "subject.json").write_text(json.dumps({"data": {"name": "x"}}))
     base = {"hero": 1, "recommended_top5_order": [1], "photos": [], "gaps": []}
     (tmp_path / "photo_scores.json").write_text(json.dumps({**base, "gallery_source": {
-        "kind": "live_airbnb", "provider": "intellihost", "fetched_at": "t", "complete": False,
-        "returned": 29, "reported": 42}}))
-    out = bd.build(tmp_path)
-    assert "LIVE Airbnb gallery via intellihost" in out and "29 of 42" in out
+        "kind": "live_airbnb", "provider": "airbnb", "fetched_at": "2026-09-28T20:00:00Z", "complete": True}}))
+    assert "LIVE Airbnb gallery, read from the public page 2026-09-28T20:00:00Z" in bd.build(tmp_path)
     (tmp_path / "photo_scores.json").write_text(json.dumps({**base, "gallery_source": {
         "kind": "pms", "provider": "Hospitable"}}))
     out = bd.build(tmp_path)
@@ -180,107 +108,57 @@ def test_paste_block_labels_airbnb_positions_only_for_a_live_gallery():
     data = {"listing": {"name": "x"}, "run_date": "d",
             "optimized": {"title": "t", "summary": "s", "the_space": "sp",
                           "captions": [{"order": 32, "subject": "living room", "caption": "c"}]},
-            "photos": {"gallery_source": {"kind": "live_airbnb", "provider": "rankbreeze"}}}
+            "photos": {"gallery_source": {"kind": "live_airbnb", "provider": "airbnb"}}}
     assert "[Airbnb photo 32: living room]" in rr.build_paste_block(data)
     data["photos"]["gallery_source"] = {"kind": "pms", "provider": "Hospitable"}
     assert "[#32 living room]" in rr.build_paste_block(data)
 
 
-def test_scorer_reports_an_incomplete_live_gallery(tmp_path):
+def test_scorer_reports_an_incomplete_gallery(tmp_path):
     import analyze_photos as ap
-    src = {"kind": "live_airbnb", "provider": "intellihost", "complete": False, "returned": 29, "reported": 42}
+    src = {"kind": "live_airbnb", "provider": "airbnb", "complete": False, "returned": 29, "reported": 42}
     (tmp_path / "images.json").write_text(json.dumps({"data": [], "_source": src}))
     assert ap.load_source(tmp_path / "images.json") == src
     note = ap.source_note(src)
     assert "29 of 42" in note and "13" in note
 
 
-@pytest.mark.parametrize("tpl", ["report.md.j2", "report.html.j2"])
-def test_reports_say_which_gallery_the_photo_numbers_refer_to(tpl):
+def _env():
     from jinja2 import Environment, FileSystemLoader
     root = Path(__file__).resolve().parent.parent
-    env = Environment(loader=FileSystemLoader(str(root / ".claude/skills/listing-optimizer/output-templates")),
-                      trim_blocks=True, lstrip_blocks=True, autoescape=tpl.endswith("html.j2"))
+    return root / ".claude/skills/listing-optimizer/output-templates", Environment, FileSystemLoader
+
+
+@pytest.mark.parametrize("tpl", ["report.md.j2", "report.html.j2"])
+def test_reports_say_which_gallery_the_photo_numbers_refer_to(tpl):
+    folder, Environment, FileSystemLoader = _env()
+    env = Environment(loader=FileSystemLoader(str(folder)), trim_blocks=True, lstrip_blocks=True,
+                      autoescape=tpl.endswith("html.j2"))
     base = {"listing": {"name": "x"}, "optimized": {"title": "t", "summary": "s", "the_space": "sp"}, "branding": {}}
     live = env.get_template(tpl).render(data={**base, "photos": {"hero": 32, "gallery_source": {
-        "kind": "live_airbnb", "provider": "rankbreeze"}}})
+        "kind": "live_airbnb", "provider": "airbnb", "fetched_at": "2026-09-28T20:00:00Z"}}})
     pms = env.get_template(tpl).render(data={**base, "photos": {"hero": 3, "gallery_source": {
         "kind": "pms", "provider": "Hospitable"}}})
-    assert "live Airbnb listing via rankbreeze" in live and "Airbnb photo positions" in live
+    assert "live Airbnb page, read 2026-09-28T20:00:00Z" in live and "Airbnb photo positions" in live
     assert "not checked against the live Airbnb listing" in pms
 
 
-def test_connections_already_in_claude_code_are_found_without_env(tmp_path, monkeypatch):
-    """Ryan, 2026-09-26: members should not paste a key they already connected in Claude.
-    The RankBreeze MCP address (key in the path) and the IntelliHost bearer token are read
-    from the Claude Code config; nothing else in that file is touched."""
-    monkeypatch.delenv("RANKBREEZE_MCP_URL", raising=False)
-    monkeypatch.delenv("INTELLIHOST_MCP_TOKEN", raising=False)
-    cfg = tmp_path / ".claude.json"
-    cfg.write_text(json.dumps({"mcpServers": {
-        "rankbreeze": {"type": "http", "url": "https://app.rankbreeze.com/api/mcp/rb_mcp_abc"},
-        "intellihost": {"type": "http", "url": "https://clients.intellihost.co/api/mcp",
-                        "headers": {"Authorization": "Bearer tok123"}},
-        "other": {"type": "http", "url": "https://example.com/mcp", "headers": {"Authorization": "Bearer nope"}}}}))
-    monkeypatch.setattr(lg, "CLAUDE_CONFIGS", [cfg])
-    src = dict(lg.configured_sources())
-    assert src["rankbreeze"]["url"].endswith("rb_mcp_abc")
-    assert src["intellihost"]["token"] == "tok123"
-    assert list(src) == ["rankbreeze", "intellihost"]
-
-
-def test_env_wins_over_claude_config(tmp_path, monkeypatch):
-    cfg = tmp_path / ".claude.json"
-    cfg.write_text(json.dumps({"mcpServers": {"rb": {"url": "https://app.rankbreeze.com/api/mcp/rb_mcp_cfg"}}}))
-    monkeypatch.setattr(lg, "CLAUDE_CONFIGS", [cfg])
-    monkeypatch.setenv("RANKBREEZE_MCP_URL", "https://app.rankbreeze.com/api/mcp/rb_mcp_env")
-    assert dict(lg.configured_sources())["rankbreeze"]["url"].endswith("rb_mcp_env")
-
-
-def test_unreadable_claude_config_is_ignored(tmp_path, monkeypatch):
-    monkeypatch.delenv("RANKBREEZE_MCP_URL", raising=False)
-    monkeypatch.delenv("INTELLIHOST_MCP_TOKEN", raising=False)
-    bad = tmp_path / ".claude.json"
-    bad.write_text("{not json")
-    monkeypatch.setattr(lg, "CLAUDE_CONFIGS", [bad, tmp_path / "missing.json"])
-    assert lg.configured_sources() == []
-
-
-# ── Live listing text + amenities (Boho Bliss 2026-09-26: the PMS description differed
-# from Airbnb's, and three reports told the host to tick Self check-in, already ticked). ──
-def test_rankbreeze_captures_live_copy_and_amenities_without_pricing():
-    s = _rb([{"position": 1, "url": MUS + "a.png"}])
-    s.responses["get_listing_content"].update({
-        "title": "Walk to UHNBC | Boho Suite", "short_description": "Short one.",
-        "long_description": "WHY GUESTS BOOK<br /><br />• 2-min walk", "amenities": ["Self check-in", "Wifi"]})
-    g = lg.from_rankbreeze(s, "111")
-    assert g["listing"]["title"] == "Walk to UHNBC | Boho Suite"
-    assert g["listing"]["description"] == "WHY GUESTS BOOK\n\n• 2-min walk"
-    assert g["listing"]["amenities"] == ["Self check-in", "Wifi"]
-    assert "250" not in json.dumps(g)
-
-
-def test_intellihost_captures_live_copy_but_not_amenities():
-    g = lg.from_intellihost(FakeSession({
-        "list-properties-tool": {"properties": [{"id": 5, "listing_id": "111"}]},
-        "get-listing-details-tool": {"photo_count": 1, "photos": [{"url": MUS + "a.jpg"}],
-                                     "title": "T", "description": "D<br />E", "price": 300}}), "111")
-    assert g["listing"] == {"title": "T", "summary": "", "description": "D\nE", "amenities": None}
+def _digest(tmp_path, subject, listing):
+    import build_digest as bd
+    (tmp_path / "subject.json").write_text(json.dumps({"data": subject}))
+    (tmp_path / "live_gallery.json").write_text(json.dumps({**GOOD, "listing": {**GOOD["listing"], **listing}}))
+    return bd.build(tmp_path)
 
 
 def test_digest_uses_live_copy_and_live_amenities_and_flags_pms_drift(tmp_path):
-    import build_digest as bd
-    (tmp_path / "subject.json").write_text(json.dumps({"data": {
-        "name": "Boho", "public_name": "Walk to UHNBC", "summary": "Same summary.",
-        "description": "Keurig + French press", "amenities": ["wifi"], "house_rules": {}}}))
     (tmp_path / "comps.json").write_text(json.dumps({"comp_count": 2, "top_comps": [],
         "market_amenity_frequency": [{"amenity": "Self check-in", "pct": 83}, {"amenity": "Wifi", "pct": 100}],
         "comp_title_samples": []}))
-    (tmp_path / "live_gallery.json").write_text(json.dumps({**GOOD, "listing": {
-        "title": "Walk to UHNBC", "summary": "Same summary.",
-        "description": "Keurig only. Explore Cottonwood Island Park and the farmers market",
-        "amenities": ["Self check-in", "Wifi"]}}))
-    out = bd.build(tmp_path)
+    out = _digest(tmp_path, {"name": "Boho", "public_name": "Walk to UHNBC", "summary": "Same summary.",
+                             "description": "Keurig + French press", "amenities": ["wifi"], "house_rules": {}},
+                  {"title": "Walk to UHNBC", "summary": "Same summary.",
+                   "description": "Keurig only. Explore Cottonwood Island Park and the farmers market",
+                   "amenities": ["Self check-in", "Wifi"]})
     assert "Cottonwood Island Park" in out and "Keurig + French press" not in out, "digest critiqued the PMS copy"
     assert "PMS copy differs from live Airbnb: description" in out
     miss = next(line for line in out.splitlines() if line.startswith("missing_on_live_airbnb"))
@@ -288,14 +166,51 @@ def test_digest_uses_live_copy_and_live_amenities_and_flags_pms_drift(tmp_path):
 
 
 def test_punctuation_only_title_difference_is_not_drift(tmp_path):
-    import build_digest as bd
-    (tmp_path / "subject.json").write_text(json.dumps({"data": {
-        "name": "Boho", "public_name": "Walk to UHNBC | Boho Suite · Firepit · Pets OK", "summary": "S"}}))
-    (tmp_path / "live_gallery.json").write_text(json.dumps({**GOOD, "listing": {
-        "title": "Walk to UHNBC | Boho Suite • Firepit • Pets OK", "summary": "S", "description": "",
-        "amenities": []}}))
-    out = bd.build(tmp_path)
+    out = _digest(tmp_path, {"name": "Boho", "public_name": "Walk to UHNBC | Boho Suite · Firepit · Pets OK",
+                             "summary": "S"},
+                  {"title": "Walk to UHNBC | Boho Suite • Firepit • Pets OK", "summary": "S"})
     assert "PMS copy matches" in out, [line for line in out.splitlines() if line.startswith("copy_source")]
+
+
+def test_drift_means_airbnb_says_something_the_pms_does_not(tmp_path):
+    """Olde Town 2026-09-26: Airbnb's The Space sat entirely inside the PMS description (the PMS
+    just carries extra sections), yet an exact-match check flagged drift. Boho's Airbnb text
+    had content the PMS lacks (Cottonwood Island Park, farmers' market): real drift."""
+    pms = {"name": "x", "public_name": "T", "summary": "S",
+           "description": "WHY GUESTS BOOK IT. Walk to Olde Town. LOCAL ATTRACTIONS: Red Rocks 15 miles."}
+
+    def copy_line(desc):
+        out = _digest(tmp_path, pms, {"title": "T", "summary": "S", "description": desc})
+        return next(x for x in out.splitlines() if x.startswith("copy_source"))
+
+    assert "PMS copy matches" in copy_line("WHY GUESTS BOOK IT. Walk to Olde Town.")
+    assert "differs from live Airbnb: description" in copy_line(
+        "WHY GUESTS BOOK IT. Walk to Olde Town, Cottonwood Island Park and the farmers market.")
+
+
+def test_digest_shows_guest_access_other_notes_and_what_is_not_included(tmp_path):
+    out = _digest(tmp_path, {"name": "x", "public_name": "T", "summary": "S"},
+                  {"guest_access": "A private suite on the lower level is occupied by a long-term tenant.",
+                   "other_notes": "Stairs to the upper bedrooms.", "not_included": ["Air conditioning"]})
+    assert "guest_access (live Airbnb): A private suite on the lower level" in out
+    assert "other_notes (live Airbnb): Stairs to the upper bedrooms." in out
+    assert "not_included (live Airbnb, shown to guests as not offered): Air conditioning" in out
+
+
+def test_a_live_listing_with_no_guest_access_is_called_out(tmp_path):
+    out = _digest(tmp_path, {"name": "x", "public_name": "T", "summary": "S"}, {"guest_access": ""})
+    assert "guest_access (live Airbnb): EMPTY. The live listing has no Guest access section" in out
+
+
+def test_without_a_live_read_the_digest_claims_nothing_about_airbnb(tmp_path):
+    import build_digest as bd
+    (tmp_path / "subject.json").write_text(json.dumps({"data": {"name": "x", "public_name": "T", "summary": "S"}}))
+    (tmp_path / "comps.json").write_text(json.dumps({"comp_count": 0, "top_comps": [], "market_amenity_frequency": [],
+        "comp_title_samples": [], "subject_listing": {"title": "Old summer title", "amenities": ["Shared hot tub"]}}))
+    out = bd.build(tmp_path)
+    line = next(x for x in out.splitlines() if x.startswith("copy_source"))
+    assert "PMS copy ONLY" in line and "could not be read" in line
+    assert "Old summer title" not in out and "Shared hot tub" not in out, "a provider snapshot leaked into the digest"
 
 
 def test_paste_instructions_follow_where_the_copy_actually_lives():
@@ -311,10 +226,8 @@ def test_paste_instructions_follow_where_the_copy_actually_lives():
 
 
 def test_occupancy_row_is_labelled_as_on_the_books():
-    from jinja2 import Environment, FileSystemLoader
-    root = Path(__file__).resolve().parent.parent
-    env = Environment(loader=FileSystemLoader(str(root / ".claude/skills/listing-optimizer/output-templates")),
-                      trim_blocks=True, lstrip_blocks=True)
+    folder, Environment, FileSystemLoader = _env()
+    env = Environment(loader=FileSystemLoader(str(folder)), trim_blocks=True, lstrip_blocks=True)
     md = env.get_template("report.md.j2").render(data={
         "listing": {"name": "x"}, "optimized": {"title": "t", "summary": "s", "the_space": "sp"}, "branding": {},
         "occupancy": {"source": "Hospitable", "forward_pct": 53.3, "forward_days": 90,
@@ -324,153 +237,12 @@ def test_occupancy_row_is_labelled_as_on_the_books():
 
 @pytest.mark.parametrize("tpl", ["report.md.j2", "report.html.j2"])
 def test_hero_is_named_as_an_airbnb_photo_on_a_live_gallery(tpl):
-    from jinja2 import Environment, FileSystemLoader
-    root = Path(__file__).resolve().parent.parent
-    env = Environment(loader=FileSystemLoader(str(root / ".claude/skills/listing-optimizer/output-templates")),
-                      trim_blocks=True, lstrip_blocks=True, autoescape=tpl.endswith("html.j2"))
+    folder, Environment, FileSystemLoader = _env()
+    env = Environment(loader=FileSystemLoader(str(folder)), trim_blocks=True, lstrip_blocks=True,
+                      autoescape=tpl.endswith("html.j2"))
     base = {"listing": {"name": "x"}, "optimized": {"title": "t", "summary": "s", "the_space": "sp"}, "branding": {}}
     live = env.get_template(tpl).render(data={**base, "photos": {"hero": 45, "recommended_top5_order": [45, 1],
-                                                                  "gallery_source": {"kind": "live_airbnb", "provider": "rankbreeze"}}})
+                                                                  "gallery_source": {"kind": "live_airbnb", "provider": "airbnb"}}})
     pms = env.get_template(tpl).render(data={**base, "photos": {"hero": 3, "recommended_top5_order": [3],
                                                                  "gallery_source": {"kind": "pms", "provider": "Hospitable"}}})
     assert "Airbnb photo 45" in live and "photo #3" in pms
-
-
-# ── AirROI: the live listing for every member, from the comps call already paid for ──
-def _airroi_subject(n, count=None):
-    return {"listing_id": 111, "title": "Walk to Olde Town", "description": "Summary text",
-            "cover_photo_url": MUS + "p0.jpeg", "photos_count": count if count is not None else n,
-            "photo_urls": [f"{MUS}p{i}.jpeg" for i in range(n)], "amenities": ["Wifi"],
-            "rating_overall": 4.98, "num_reviews": 155, "guest_favorite": True, "superhost": True}
-
-
-def test_airroi_full_gallery_is_live_and_complete():
-    g = lg.from_airroi_subject(_airroi_subject(32), pms_count=54)
-    assert g["provider"] == "airroi" and g["complete"] and len(g["photos"]) == 32
-    assert g["photos"][0]["position"] == 1
-    # AirROI's "description" is the summary followed by the full description, not the summary.
-    assert g["listing"]["description"] == "Summary text" and g["listing"]["summary"] == ""
-
-
-def test_airroi_top_grid_only_is_never_treated_as_the_whole_gallery():
-    """boho-bliss 2026-09-26: AirROI reported photos_count 5 for a 47-photo listing; it had
-    captured only Airbnb's top grid and did not say anything was missing."""
-    g = lg.from_airroi_subject(_airroi_subject(5), pms_count=47)
-    assert g["complete"] is False and "top grid" in g["incomplete_reason"]
-
-
-def _stage_pms(tmp_path, n):
-    (tmp_path / "images.json").write_text(json.dumps({"data": [{"url": f"https://x/{i}.jpg", "order": i}
-                                                              for i in range(n)],
-                                                     "_source": {"kind": "pms", "provider": "Hospitable"}}))
-
-
-def test_pipeline_uses_a_complete_airroi_gallery(tmp_path):
-    _stage_pms(tmp_path, 54)
-    (tmp_path / "comps.json").write_text(json.dumps({"subject_listing": _airroi_subject(32)}))
-    status, detail = rp.airroi_gallery_step(tmp_path)
-    im = json.loads((tmp_path / "images.json").read_text(encoding="utf-8"))
-    assert status == "ok" and im["_source"]["provider"] == "airroi" and len(im["data"]) == 32
-
-
-def test_pipeline_keeps_the_pms_gallery_when_airroi_saw_only_the_top_grid(tmp_path):
-    _stage_pms(tmp_path, 47)
-    (tmp_path / "comps.json").write_text(json.dumps({"subject_listing": _airroi_subject(5)}))
-    status, detail = rp.airroi_gallery_step(tmp_path)
-    im = json.loads((tmp_path / "images.json").read_text(encoding="utf-8"))
-    assert status == "skipped" and "top 5" in detail and im["_source"]["kind"] == "pms"
-
-
-def test_digest_falls_back_to_the_airroi_listing_for_copy_and_amenities(tmp_path):
-    import build_digest as bd
-    (tmp_path / "subject.json").write_text(json.dumps({"data": {
-        "name": "OTA", "public_name": "Walk to Olde Town", "summary": "Old PMS summary", "amenities": [],
-        "house_rules": {}}}))
-    (tmp_path / "comps.json").write_text(json.dumps({"comp_count": 1, "top_comps": [],
-        "market_amenity_frequency": [{"amenity": "Wifi", "pct": 100}, {"amenity": "Backyard", "pct": 96}],
-        "comp_title_samples": [], "subject_listing": _airroi_subject(32)}))
-    out = bd.build(tmp_path)
-    assert "Summary text" in out and "via airroi" in out.lower()
-    miss = next(x for x in out.splitlines() if x.startswith("missing_on_live_airbnb"))
-    assert "Backyard" in miss and "Wifi" not in miss
-    assert "4.98 over 155 reviews" in out and "Guest Favorite" in out
-
-
-
-def test_airroi_full_text_is_not_mistaken_for_a_changed_summary(tmp_path):
-    """2026-09-26: AirROI's description (summary + full description, 4,922 chars) was mapped
-    to the summary, so both real listings were wrongly flagged 'PMS copy differs: summary'."""
-    import build_digest as bd
-    summ = "Bringing the crew to Denver this summer? Sleeps 8."
-    (tmp_path / "subject.json").write_text(json.dumps({"data": {
-        "name": "OTA", "public_name": "Walk to Olde Town", "summary": summ,
-        "description": "WHY GUESTS BOOK IT. Walk to Olde Town.", "amenities": [], "house_rules": {}}}))
-    sub = {**_airroi_subject(32), "description": summ + " WHY GUESTS BOOK IT. Walk to Olde Town. More text."}
-    (tmp_path / "comps.json").write_text(json.dumps({"comp_count": 0, "top_comps": [],
-        "market_amenity_frequency": [], "comp_title_samples": [], "subject_listing": sub}))
-    out = bd.build(tmp_path)
-    assert "PMS copy matches" in out, [x for x in out.splitlines() if x.startswith("copy_source")]
-    sub["description"] = "A totally different summary. " + sub["description"]
-    (tmp_path / "comps.json").write_text(json.dumps({"comp_count": 0, "top_comps": [],
-        "market_amenity_frequency": [], "comp_title_samples": [], "subject_listing": sub}))
-    assert "PMS copy differs from live Airbnb: summary" in bd.build(tmp_path)
-
-
-def test_airroi_gallery_line_states_the_data_age(tmp_path):
-    _stage_pms(tmp_path, 54)
-    (tmp_path / "comps.json").write_text(json.dumps({"subject_listing": _airroi_subject(32),
-                                                      "fetch": {"calls": 0, "path": "cache", "cache_age_days": 3.2}}))
-    rp.airroi_gallery_step(tmp_path)
-    g = json.loads((tmp_path / "live_gallery.json").read_text(encoding="utf-8"))
-    assert g["fetched_at"] == "AirROI data cached 3.2 days ago"
-
-
-def test_drift_means_airbnb_says_something_the_pms_does_not(tmp_path):
-    """Olde Town 2026-09-26: Airbnb's The Space sat entirely inside the PMS description (the PMS
-    just carries extra sections), yet an exact-match check flagged drift. Boho's Airbnb text
-    had content the PMS lacks (Cottonwood Island Park, farmers' market): real drift."""
-    import build_digest as bd
-    pms = "WHY GUESTS BOOK IT. Walk to Olde Town. LOCAL ATTRACTIONS: Red Rocks 15 miles. Transit notes here."
-    (tmp_path / "subject.json").write_text(json.dumps({"data": {"name": "x", "public_name": "T", "summary": "S",
-                                                                "description": pms}}))
-    def with_live(desc):
-        (tmp_path / "live_gallery.json").write_text(json.dumps({**GOOD, "listing": {
-            "title": "T", "summary": "S", "description": desc, "amenities": []}}))
-        return next(x for x in bd.build(tmp_path).splitlines() if x.startswith("copy_source"))
-    assert "PMS copy matches" in with_live("WHY GUESTS BOOK IT. Walk to Olde Town.")
-    assert "differs from live Airbnb: description" in with_live(
-        "WHY GUESTS BOOK IT. Walk to Olde Town, Cottonwood Island Park and the farmers market.")
-
-
-def test_a_complete_airroi_gallery_replaces_a_partial_intellihost_one(tmp_path):
-    _stage_pms(tmp_path, 54)
-    partial = {**GOOD, "provider": "intellihost", "complete": False, "returned": 2, "reported": 42}
-    (tmp_path / "live_gallery.json").write_text(json.dumps(partial))
-    assert rp.live_gallery_incomplete(tmp_path) is True
-    (tmp_path / "comps.json").write_text(json.dumps({"subject_listing": _airroi_subject(42)}))
-    status, _ = rp.airroi_gallery_step(tmp_path)
-    assert status == "ok" and json.loads((tmp_path / "live_gallery.json").read_text(encoding="utf-8"))["provider"] == "airroi"
-
-
-def test_rankbreeze_keeps_guest_access_and_live_review_facts():
-    """sunburst-chalet 2026-09-26: Airbnb's Guest access section disclosed a tenant suite that
-    the headline copy contradicted, and AirROI's review count (13) was stale vs live (16)."""
-    s = _rb([{"position": 1, "url": MUS + "a.png"}])
-    s.responses["get_listing_content"].update({"guest_access": "Main house only.<br />Tenant suite below.",
-                                               "rating": 5, "reviews_count": 16})
-    g = lg.from_rankbreeze(s, "111")
-    assert g["listing"]["guest_access"] == "Main house only.\nTenant suite below."
-    assert (g["listing"]["rating_overall"], g["listing"]["num_reviews"]) == (5, 16)
-
-
-def test_digest_shows_guest_access_and_prefers_live_review_facts(tmp_path):
-    import build_digest as bd
-    (tmp_path / "subject.json").write_text(json.dumps({"data": {"name": "x", "public_name": "T", "summary": "S"}}))
-    (tmp_path / "comps.json").write_text(json.dumps({"comp_count": 0, "top_comps": [], "market_amenity_frequency": [],
-        "comp_title_samples": [], "subject_listing": {**_airroi_subject(5), "rating_overall": 5.0, "num_reviews": 13}}))
-    (tmp_path / "live_gallery.json").write_text(json.dumps({**GOOD, "listing": {
-        "title": "T", "summary": "S", "description": "", "amenities": [], "rating_overall": 5, "num_reviews": 16,
-        "guest_access": "A private suite on the lower level is occupied by a long-term tenant."}}))
-    out = bd.build(tmp_path)
-    assert "5 over 16 reviews" in out and "over 13 reviews" not in out
-    assert "guest_access (live Airbnb): A private suite on the lower level" in out

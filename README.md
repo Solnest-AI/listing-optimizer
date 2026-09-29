@@ -114,24 +114,18 @@ downloads**. This is one measured sample, not a guarantee for every gallery. Sce
 matched, but scores and the selected cover differed. Treat vision scores as recommendations,
 not objective measurements. `analyze_photos.py --batch-size 1 --no-cache` enables a fresh individual comparison.
 
-## Which photos get ranked: live Airbnb gallery vs your PMS
+## The live Airbnb listing vs your PMS
 
-AirROI, which every install already uses for comps, returns the listing being optimized in the
-same call: its live Airbnb photo order, title, text, amenities, rating and badges, at no extra
-cost. That is the default live source. When AirROI only holds Airbnb's 5-photo top grid, the PMS
-gallery is ranked instead (so buried photos are still found) and AirROI still supplies the copy
-and amenities. RankBreeze or IntelliHost, when connected, add captions or fill gaps.
+Every run reads the listing's public Airbnb page once, free and with no key: title, summary,
+The space, Guest access, the full amenity list and the photo gallery in order with your
+captions. The report critiques that live listing, and photo numbers are Airbnb positions. Your
+PMS copy can differ from what guests see (one real listing: 54 photos with a collage cover in
+the PMS, 32 with a different cover on Airbnb); when it does, the report says so.
 
-Your PMS copy of the gallery can differ from what guests see on Airbnb (one real listing:
-54 photos with a collage cover in the PMS, 32 with a different cover on Airbnb). Add
-a RankBreeze or IntelliHost connection in Claude Code (found automatically), or set
-`RANKBREEZE_MCP_URL` / `INTELLIHOST_MCP_TOKEN` in `.env`, and the photo plan uses the live
-Airbnb gallery, numbered by Airbnb position. RankBreeze returns the
-full gallery with captions. IntelliHost needs Premium on the property and returns no captions.
-Its stored gallery can also be short: on one Premium listing it held the first 29 of 42 live
-photos (its own earlier captures had all 42), so a short list is reported as incomplete. With neither, the PMS gallery is ranked and the
-report says it was not checked against Airbnb. If RankBreeze or IntelliHost is connected in
-Claude instead of `.env`, Claude stages the live gallery itself before the run.
+Nothing stale is ever used for your own listing. RankBreeze, IntelliHost and AirROI hold stored
+snapshots that were measured months out of date, with amenity boxes mixed between two houses,
+so they are not used for it at all. AirROI is used for competitor comps only. If the Airbnb
+page cannot be read, the report uses your PMS copy and says it was not checked against Airbnb.
 
 ## Refresh, recovery and stopping
 

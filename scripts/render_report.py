@@ -162,6 +162,22 @@ def caption_coverage(data: dict, orders: set) -> dict:
             "missing": sorted(orders - captioned - remove), "remove": sorted(remove)}
 
 
+def check_removals(data: dict) -> None:
+    """A delete list needs evidence. apres-arcade 2026-09-28: the writer marked 28 of 79 photos
+    for deletion ("weak or repeated shots") while the duplicate check found none and only one
+    was flagged for reshoot. Only a detected duplicate or a reshoot-flagged photo may be
+    deleted; a trim idea goes in the Photos scorecard fix, where the host can weigh it."""
+    remove = set((data.get("optimized") or {}).get("remove_orders") or [])
+    photos = data.get("photos") or {}
+    allowed = set(photos.get("duplicate_repeats") or []) | set(photos.get("reshoot") or [])
+    extra = sorted(remove - allowed)
+    if extra:
+        raise ValueError(f"optimized.remove_orders {extra} are neither detected duplicates "
+                         f"{sorted(photos.get('duplicate_repeats') or [])} nor flagged for reshoot "
+                         f"{sorted(photos.get('reshoot') or [])}. Caption them instead; suggest any trim "
+                         f"in the Photos channel fix with its reason")
+
+
 def check_caption_orders(data: dict, workdir: Path, orders: set | None = ...) -> list:
     """Mark captions whose photo order is not in this run's gallery as new photos to
     create (e.g. the map the report asks for). A mistyped order surfaces the same way,
@@ -474,6 +490,7 @@ def main():
             merged = merge_machine_blocks(data, wd)
             if merged:
                 print(f"[render_report] merged from disk: {', '.join(merged)}")
+            check_removals(data)
             order_note = caption_order_note(data)
             if order_note:
                 print(f"[render_report] WARNING: {order_note}")
