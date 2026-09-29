@@ -31,6 +31,7 @@ import ale
 import artifacts
 import console
 import listing_gaps
+import verify_report
 from secrets_scan import SECRET_RE
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -506,6 +507,10 @@ def main():
                 if cov["missing"]:
                     print(f"[render_report] WARNING: {len(cov['missing'])} kept photos have no caption: "
                           f"{cov['missing']}. Caption them, or list them in optimized.remove_orders")
+            wrong = verify_report.check(data, wd)
+            if wrong:
+                raise ValueError("claims that contradict this run's data (fix them and rerun):\n  - "
+                                 + "\n  - ".join(wrong[:12]))
     except (OSError, ValueError) as e:
         sys.exit(f"[render_report] invalid result: {e}")
     # branding.json is per-user (gitignored); fall back to the shipped example.

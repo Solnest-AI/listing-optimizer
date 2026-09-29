@@ -18,7 +18,18 @@ def test_committed_agent_matches_the_rule_files():
 def test_every_rule_file_is_copied_verbatim():
     text = bwa.build()
     for src in bwa.SOURCES:
-        assert src.read_text(encoding="utf-8").rstrip() in text, src.name
+        body = src.read_text(encoding="utf-8").rstrip()
+        assert (bwa.skill_for_writer(body) if src.name == "SKILL.md" else body) in text, src.name
+
+
+def test_writer_gets_the_writing_rules_but_not_the_setup_sections():
+    text = bwa.build()
+    for kept in ("## Non-negotiable boundaries", "## 2a.", "## 3. Write result.json",
+                 "Private feedback in the digest", "remove_orders"):
+        assert kept in text, kept
+    for dropped in ("## 0. Preflight", "## 1. Scope and discovery", "## 2b. Photo fallback",
+                    "## 5. Optional approved application", "run_portfolio.py --date"):
+        assert dropped not in text, dropped
 
 
 def test_writer_has_only_read_bash_write_and_inherits_the_model():

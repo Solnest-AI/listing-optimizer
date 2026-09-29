@@ -10,6 +10,7 @@ usage: build_writer_agent.py [--check]
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -81,11 +82,32 @@ The rules below are the skill's own files, copied verbatim.
 """
 
 
+# The writer only writes result.json and renders it. SKILL.md's setup, discovery, pipeline,
+# photo-fallback and write-back sections are for the orchestrating session, and cost the writer
+# ~2.5k tokens on every turn. Kept verbatim: these sections, plus the evidence-reading paragraph.
+SKILL_SECTIONS = ("## Non-negotiable boundaries", "## 2a.", "## 3.")
+SKILL_PARAGRAPHS = ("Private feedback in the digest",)
+
+
+def skill_for_writer(text: str) -> str:
+    """The SKILL.md sections the writer acts on, verbatim, in their original order."""
+    keep = []
+    for chunk in re.split(r"(?m)^(?=## )", text):
+        if not chunk.startswith("## ") or chunk.startswith(SKILL_SECTIONS):
+            keep.append(chunk.rstrip())  # the title block, or a kept section
+        else:
+            keep += [para.rstrip() for para in chunk.split("\n\n") if para.startswith(SKILL_PARAGRAPHS)]
+    return "\n\n".join(k for k in keep if k)
+
+
 def build() -> str:
     parts = [HEADER]
     for src in SOURCES:
         rel = src.relative_to(ROOT).as_posix()
-        parts.append(f"\n<!-- BEGIN {rel} -->\n{src.read_text(encoding='utf-8-sig').rstrip()}\n<!-- END {rel} -->\n")
+        body = src.read_text(encoding="utf-8-sig").rstrip()
+        if src.name == "SKILL.md":
+            body = skill_for_writer(body)
+        parts.append(f"\n<!-- BEGIN {rel} -->\n{body}\n<!-- END {rel} -->\n")
     return "".join(parts)
 
 
