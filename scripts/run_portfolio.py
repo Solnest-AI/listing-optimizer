@@ -184,7 +184,8 @@ def run(args, runner=subprocess.run) -> dict:
               "this_run": [x["slug"] for x in listings]}
     _write_json(path, report)
     queue = [r for r in listings if r["ready_to_write"]]
-    print(f"\nWRITER QUEUE ({len(queue)} of {len(listings)}): one listing-writer agent per line")
+    print(f"\nWRITER QUEUE ({len(queue)} of {len(listings)}): one listing-writer agent per line. Launch the "
+          f"first alone, then waves of up to 5 back to back (they share the cached prompt; SKILL.md section 1)")
     for r in queue:
         notes = ("in digest" if r["owner_notes_in_digest"] else
                  f"{r['owner_facts']} in config but NOT in this digest (built before them): pass them "

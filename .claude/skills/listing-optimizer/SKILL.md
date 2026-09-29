@@ -39,15 +39,22 @@ pipeline first, then give the agent the slug, date, season and any owner-confirm
 It carries these rules in its system prompt, has only Read, Bash and Write (plus PowerShell
 for a Windows machine without Git Bash), and finishes in three tool calls, so a report does
 not pay for the tool catalogue a general agent loads or for extra turns that re-send the
-whole context. Several listings: one writer per listing, a
-few at once within the environment's capacity. Never split a listing among agents or put
-several listings in one agent. If the agent is missing (Claude Code loads agents at
+whole context. Several listings: one writer per listing, launched back to back so they share
+the prompt cache. Every writer opens with the same ~35k-token prompt; the first to send it pays
+to cache it, and a writer that starts while it is still cached reads it at a tenth of the price
+(measured 2026-09-29: 22k of 35k tokens read from cache, about 16% off each later report). So:
+launch ONE writer alone, then, a few seconds later in one message, the next wave of up to 5.
+Start each further wave as soon as the previous one finishes, never with a long gap: every use
+refreshes the cache, and a few idle minutes lets it expire. Never launch all of them at the
+same instant (none is cached yet) or dozens at once (rate limits). Never split a listing among
+agents or put several listings in one agent. If the agent is missing (Claude Code loads agents at
 startup, so restart after installing or updating) or the user forbids delegation, write
 inline by following sections 3 and 4.
 
 Whole portfolio (Hospitable): `scripts/run_portfolio.py --date <DATE>` runs the pipeline for
 every listed property, one failure never stopping the rest, and prints a WRITER QUEUE. Launch
-one `listing-writer` per queued line (a few at once), passing the season; owner facts reach
+one `listing-writer` per queued line, back to back as above (one first, then waves of up to
+5), passing the season; owner facts reach
 the digest from `config/properties.json` (`season`, `owner_facts`, `notes`). A writer that
 replies `PHOTO FALLBACK REQUIRED` needs section 2b first. A Gemini daily quota stops new
 listings; rerun with `--resume` after midnight Pacific. Exit 2 means partial (a listing failed,
