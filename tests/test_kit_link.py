@@ -135,6 +135,29 @@ def test_no_kit_is_exit_one(world, tmp_path, capsys, monkeypatch):
     assert "no STR Secrets Connections folder" in capsys.readouterr().out
 
 
+def test_the_nearest_set_up_kit_beats_a_newer_one_elsewhere(tmp_path, monkeypatch):
+    """Mac 2026-09-29: a test copy of the skill sat next to a test kit, while the owner's real
+    kit elsewhere could have the newer .env. Newest-wins would register the test folder in the
+    real kit, repointing its fan-out. A kit that shares more of this folder's path wins first."""
+    import os
+    import time
+    home = tmp_path / "home"
+    lo = home / "Documents" / "TEST" / "Listing Optimizer" / "listing-optimizer"
+    lo.mkdir(parents=True)
+    near, far = home / "Documents" / "TEST" / "str-secrets-connections", home / "Desktop" / "str-secrets-connections"
+    for d in (near, far):
+        d.mkdir(parents=True)
+        (d / "CONNECTIONS.md").write_text("x", encoding="utf-8")
+        (d / "fan-out-env.sh").write_text("x", encoding="utf-8")
+        (d / ".env").write_text("AIRROI_API_KEY=x\n", encoding="utf-8")
+    later = time.time() + 60
+    os.utime(far / ".env", (later, later))
+    monkeypatch.setattr(kl.Path, "home", staticmethod(lambda: home))
+    monkeypatch.setattr(kl, "ROOT", lo)
+    monkeypatch.delenv("STR_SECRETS_KIT", raising=False)
+    assert kl.find_kit(None) == near.resolve()
+
+
 def test_find_kit_prefers_a_set_up_kit_on_the_desktop(tmp_path, monkeypatch):
     home = tmp_path / "home"
     fresh = home / "Downloads" / "str-secrets-connections"

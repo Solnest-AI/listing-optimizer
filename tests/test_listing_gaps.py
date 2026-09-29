@@ -64,6 +64,16 @@ def test_ticked_noise_monitor_must_be_disclosed(tmp_path):
     assert _issues(tmp_path, {"other_notes": "• A noise monitor (no recording)"}, amenities=ticked) == []
 
 
+def test_plural_disclosures_count(tmp_path):
+    """boho-bliss 2026-09-29: other_notes said "Exterior security cameras on the property", in
+    Airbnb's own plural, and the report still said the copy never mentions them."""
+    cams = ("Exterior security cameras on property",)
+    assert _issues(tmp_path, {"other_notes": "• Exterior security cameras on the property"}, amenities=cams) == []
+    monitors = ("Noise decibel monitors on property",)
+    assert _issues(tmp_path, {"other_notes": "• Noise monitors in the living room"}, amenities=monitors) == []
+    assert _issues(tmp_path, {"other_notes": "• Noise sensors, no recording"}, amenities=monitors) == []
+
+
 @pytest.mark.parametrize("copy,ticked,flagged", [
     ("Soak in the private hot tub.", (), "hot tub"),
     ("Self check-in with a keypad.", ("Self check-in",), "keypad"),

@@ -6,7 +6,8 @@ live. Its fan-out-env.sh copies them into every skill folder named by a SKILL_PA
 the kit's .env. This script is the same bridge, driven from this side:
 
   1. find the kit folder (--kit, $STR_SECRETS_KIT, next to this folder, Desktop, Documents,
-     Downloads, OneDrive copies of those, home; 3 levels deep)
+     Downloads, OneDrive copies of those, home; 3 levels deep). Several found: the one
+     registered to this folder, else the set-up kit nearest this folder, else the newest .env
   2. write SKILL_PATH_LISTING_OPTIMIZER=<this folder> into the kit's .env (a path, not a
      secret; the kit expects Claude to fill it on summit morning) so the kit's own fan-out
      keeps this folder in sync from now on
@@ -111,17 +112,29 @@ def is_set_up(d: Path) -> bool:
     return (d / ".env").is_file()
 
 
+def _closeness(d: Path) -> int:
+    """Path parts the kit shares with this folder. A kit beside this copy of the skill beats one
+    across the machine: newest-wins once risked registering a test copy in the owner's real kit
+    (Mac, 2026-09-29), repointing that kit's fan-out away from the real install."""
+    shared = 0
+    for a, b in zip(d.resolve().parts, ROOT.resolve().parts, strict=False):
+        if a != b:
+            break
+        shared += 1
+    return shared
+
+
 def _rank(d: Path) -> tuple:
-    """Best kit first: the one already registered to THIS folder, then any set-up kit (newest
-    .env), then bare downloads."""
+    """Best kit first: the one already registered to THIS folder, then the set-up kit nearest
+    this folder, then the newest .env, then bare downloads."""
     env = d / ".env"
     if not env.is_file():
-        return (0, 0, 0.0)
+        return (0, 0, 0, 0.0)
     registered = read_env(env).get(SKILL_PATH_VAR, "")
     mine = 0
     with contextlib.suppress(OSError, ValueError):
         mine = int(bool(registered) and Path(registered).resolve() == ROOT.resolve())
-    return (1, mine, env.stat().st_mtime)
+    return (1, mine, _closeness(d), env.stat().st_mtime)
 
 
 def _walk(root: Path, depth: int, seen: dict | None = None):

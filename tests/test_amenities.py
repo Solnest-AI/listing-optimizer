@@ -108,3 +108,17 @@ def test_shared_and_private_variants_count_as_the_amenity():
     r = am.compare(["Shared hot tub", "Private pool", "Private entrance"], {}, freq, [], copy_text="")
     assert r["missing"] == [], [g["amenity"] for g in r["missing"]]
     assert am.canon("Private entrance") == "private entrance", "a real amenity name must not be stripped"
+
+
+def test_a_picked_type_replaces_the_amenity_name_on_airbnb():
+    """boho-bliss: the live page read "Heating" and "Free parking on premises" on 2026-09-26
+    and "Central heating" and "Free parking garage on premises" on 2026-09-29, after a type
+    was picked in the editor. The 09-29 digest called Heating (92% of comps) and Free parking
+    on premises (83%) missing on a listing that has both."""
+    freq = _freq([("Heating", 92), ("Free parking on premises", 83), ("Free street parking", 58)])
+    r = am.compare(["Central heating", "Free parking garage on premises"], {}, freq, [], copy_text="")
+    assert [g["amenity"] for g in r["missing"]] == ["Free street parking"]
+    assert am.canon("Free residential garage on premises – 1 space") == "free parking on premises"
+    assert am.canon("Radiant heating") == "heating"
+    for other in ("Paid parking on premises", "Free street parking", "Portable heater", "Heated floors"):
+        assert am.canon(other) not in ("heating", "free parking on premises"), other

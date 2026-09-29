@@ -41,9 +41,11 @@ def registration_only(text: str) -> bool:
 # Ticked on Airbnb -> must be disclosed (help article 3061). Airbnb's Safety devices field may
 # already describe them, but no source we read returns it, so the gap asks the host to check.
 DISCLOSURES = {
-    "exterior security cameras on property": ("Exterior security cameras", ("camera",),
+    # Plurals listed too: _mentions matches whole words, and Airbnb's own labels are plural.
+    "exterior security cameras on property": ("Exterior security cameras", ("camera", "cameras"),
                                               "say where they are and what they cover"),
-    "noise decibel monitors on property": ("Noise monitors", ("noise monitor", "decibel", "noise sensor"),
+    "noise decibel monitors on property": ("Noise monitors", ("noise monitor", "noise monitors", "decibel",
+                                                              "noise sensor", "noise sensors"),
                                            "say the home has them"),
 }
 

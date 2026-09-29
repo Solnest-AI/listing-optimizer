@@ -100,6 +100,13 @@ def canon(text) -> str:
     for prefix in ("private ", "shared "):
         if n.startswith(prefix) and n[len(prefix):] in QUALIFIABLE:
             n = n[len(prefix):]
+    # Once a type is picked in the editor, Airbnb shows it in place of the amenity's name:
+    # boho-bliss read "Heating" / "Free parking on premises" on 2026-09-26 and "Central heating"
+    # / "Free parking garage on premises" on 09-29. The market labels keep the plain name.
+    if n.endswith(" heating"):
+        return "heating"
+    if n.startswith("free ") and n.endswith(" on premises") and any(w in n for w in ("parking", "garage", "carport")):
+        return "free parking on premises"
     for suffix in BRANDED_SUFFIXES:
         if n != suffix and n.endswith(" " + suffix):
             return suffix
