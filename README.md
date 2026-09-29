@@ -34,7 +34,8 @@ you have not done it yet). Nothing else to install by hand.
 > this repo, skip the clone and use this folder. Then follow "Setup or update" in
 > `CLAUDE.md`, starting every command with `cd ~/listing-optimizer &&` (or this folder),
 > because Claude Code can reset the working folder between commands. Give the setup command
-> a 15 minute timeout. When setup exits 0, say "✅ Listing Optimizer is set up." and give
+> the longest timeout your Bash tool allows (10 minutes); a first run on a fresh laptop
+> downloads uv and Python. When setup exits 0, say "✅ Listing Optimizer is set up." and give
 > them the one step left: open the folder (say its full path) in the Claude Code desktop
 > app, or drag it into the app window, then say **"Optimize my [listing] for [season]."**
 > Do not start an optimization from this session: the `listing-writer` agent it needs only
