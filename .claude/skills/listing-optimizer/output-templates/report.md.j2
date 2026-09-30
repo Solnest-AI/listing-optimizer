@@ -119,7 +119,9 @@ Captions cover {{ data.caption_coverage.captioned }} of {{ data.caption_coverage
 ## Funnel Diagnostic: {{ data.funnel.source }} (views = real traffic)
 
 {% if data.funnel.city_rank %}
-- **City rank:** #{{ data.funnel.city_rank.position }} of {{ data.funnel.city_rank.of }} (page {{ data.funnel.city_rank.page }})
+{% set rank = data.funnel.city_rank %}
+- **City rank:** #{{ rank.position }}{% if rank.of %} of {{ rank.of }}{% endif %}{% if rank.page %} (page {{ rank.page }}){% endif %}
+
 {% endif %}
 {% if data.funnel.views_monthly %}
 
@@ -131,7 +133,7 @@ Captions cover {{ data.caption_coverage.captioned }} of {{ data.caption_coverage
 {% endif %}
 {% endif %}
 
-{% if data.funnel.ctr_vs_similar %}_CTR {{ data.funnel.ctr_vs_similar.you }} vs {{ data.funnel.ctr_vs_similar.similar }} similar. {{ data.funnel.ctr_vs_similar.note }}_{% endif %}
+{% if data.funnel.ctr_vs_similar %}{% set ctr = data.funnel.ctr_vs_similar %}_CTR {{ ctr.you }} vs {{ ctr.similar }} similar.{% if ctr.note %} {{ ctr.note }}{% endif %}_{% endif %}
 
 **Lever focus:** {{ data.funnel.lever_focus }}
 {{ data.funnel.diagnosis }}
