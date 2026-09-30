@@ -42,11 +42,15 @@ try:  # standalone: load keys from the project .env (gitignored)
 except ImportError:
     pass
 
-DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+# gemini-2.5-flash stopped serving new keys on 2026-09-30 (HTTP 404 "no longer available to new
+# users"), which sent every photo to the Claude-vision fallback. check_keys.py probes this model.
+BUILTIN_MODEL = "gemini-3.8-flash"
+DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", BUILTIN_MODEL)
 
-# BUMP THIS whenever RUBRIC or _SCHEMA changes. It is part of the cache key, so a rubric
-# change invalidates every cached score instead of silently mixing old and new scales.
-RUBRIC_VERSION = 3
+# BUMP THIS whenever RUBRIC, _SCHEMA or the generation config changes. It is part of the cache
+# key, so a rubric change invalidates every cached score instead of silently mixing old and new
+# scales. v4: Gemini 3 config (minimal thinking, default temperature).
+RUBRIC_VERSION = 4
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 # Closed set of "beats" a photo can cover. The top-5 cover set must hit FIVE DIFFERENT
@@ -239,6 +243,24 @@ def _rate_limit(r) -> tuple[float | None, str | None]:
     return delay, None
 
 
+def _generation_config(model: str, schema: dict, n_images: int) -> dict:
+    """Structured JSON with thinking kept to a minimum: thought tokens count against
+    maxOutputTokens, and 512 per image leaves no room for them.
+
+    Gemini 2.x takes thinkingBudget and temperature 0. Gemini 3 and later think at medium by
+    default, reject thinkingBudget alongside thinkingLevel, and Google warns that a temperature
+    below the 1.0 default can loop, so they get thinkingLevel minimal and the default."""
+    config = {"response_mime_type": "application/json", "response_schema": schema,
+              "maxOutputTokens": 512 * n_images + 256}
+    if model.startswith("gemini-2."):
+        config["temperature"] = 0
+        if model.startswith("gemini-2.5-flash"):
+            config["thinkingConfig"] = {"thinkingBudget": 0}
+    else:
+        config["thinkingConfig"] = {"thinkingLevel": "minimal"}
+    return config
+
+
 async def _generate_scores(client, model, key, prepared, stats, fatal, attempts):
     """Send a bounded group once; retry only transient failures within the call budget."""
     def fail(message):
@@ -260,11 +282,8 @@ async def _generate_scores(client, model, key, prepared, stats, fatal, attempts)
     for photo, mime, b64 in prepared:
         parts.extend([{"text": f"PHOTO_ORDER={photo['order']}"},
                       {"inline_data": {"mime_type": mime, "data": b64}}])
-    config = {"response_mime_type": "application/json", "response_schema": schema,
-              "temperature": 0, "maxOutputTokens": 512 * len(prepared) + 256}
-    if model.startswith("gemini-2.5-flash"):
-        config["thinkingConfig"] = {"thinkingBudget": 0}
-    body = {"contents": [{"parts": parts}], "generationConfig": config}
+    body = {"contents": [{"parts": parts}],
+            "generationConfig": _generation_config(model, schema, len(prepared))}
     try:
         for attempt in range(attempts):
             stats["api_calls"] += 1
@@ -278,7 +297,11 @@ async def _generate_scores(client, model, key, prepared, stats, fatal, attempts)
                     return fail("Gemini request timed out or network unavailable")
                 await asyncio.sleep(2 ** attempt)
                 continue
-            if r.status_code in (401, 403, 404):
+            if r.status_code == 404:
+                fatal.set()
+                return fail(f"Gemini HTTP 404: model {model} is retired or not available to this "
+                            f"key; set GEMINI_MODEL in .env to a current Flash model")
+            if r.status_code in (401, 403):
                 fatal.set()
                 return fail(f"Gemini HTTP {r.status_code}; check key/model access")
             if r.status_code == 429:

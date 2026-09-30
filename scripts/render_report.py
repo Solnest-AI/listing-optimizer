@@ -347,6 +347,35 @@ def caption_order_note(data: dict) -> str | None:
             f"explain the override in the scorecard")
 
 
+def _positive_int(v) -> bool:
+    return type(v) is int and v >= 1
+
+
+def _text(v) -> bool:
+    return isinstance(v, str) and bool(v.strip())
+
+
+def _check_funnel_objects(funnel: dict) -> None:
+    """city_rank and ctr_vs_similar are objects the templates read field by field. Written as
+    prose strings (both 2026-09 writer runs did, following the old docs), they rendered as
+    "City rank: # of  (page )". Blank means absent."""
+    for key in ("city_rank", "ctr_vs_similar"):
+        if funnel.get(key) in ("", None, {}):
+            funnel.pop(key, None)
+    rank = funnel.get("city_rank")
+    if rank is not None and not (
+            isinstance(rank, dict) and _positive_int(rank.get("position"))
+            and all(rank.get(k) is None or _positive_int(rank[k]) for k in ("of", "page"))):
+        raise ValueError('funnel.city_rank must be {"position": 139, "page": 8} ("of": N only when '
+                         'the source gives the total), or left out')
+    ctr = funnel.get("ctr_vs_similar")
+    if ctr is not None and not (
+            isinstance(ctr, dict) and _text(ctr.get("you")) and _text(ctr.get("similar"))
+            and (ctr.get("note") is None or isinstance(ctr["note"], str))):
+        raise ValueError('funnel.ctr_vs_similar must be {"you": "26.85%", "similar": "11.43%", '
+                         '"note": ""}, or left out')
+
+
 def validate_result(data: dict) -> None:
     """Reject unusable paste copy before creating any deliverables."""
     if not isinstance(data, dict) or not isinstance(data.get("listing"), dict):
@@ -411,6 +440,7 @@ def validate_result(data: dict) -> None:
         for key in ("views_monthly", "booking_rate_monthly"):
             if funnel.get(key) is not None and not isinstance(funnel[key], dict):
                 raise ValueError(f'funnel.{key} must map month to value, e.g. {{"Aug": 687}}')
+        _check_funnel_objects(funnel)
     card = data.get("ale_scorecard")
     if card is not None:
         if not isinstance(card, list) or not all(isinstance(r, dict) for r in card):
