@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Verify the keys in .env with free, read-only requests. Never prints a key.
 
-Hospitable: lists one property. Gemini: reads the model's metadata (no generation, no cost).
-AirROI bills every call, so only its presence is checked; the first run proves it works.
+Hospitable: lists one property. Gemini: counts the tokens of "ok" on the scoring model (no
+generation, no cost). AirROI bills every call, so only its presence is checked; the first run
+proves it works.
 
 usage: check_keys.py      exit 0 when every required key is present and nothing was rejected
 """
@@ -14,12 +15,16 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
+from analyze_photos import BUILTIN_MODEL
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def _get(url: str, headers: dict) -> str:
+def _probe(url: str, headers: dict, body: dict | None = None) -> str:
+    """GET, or POST when a JSON body is given."""
     try:
-        r = httpx.get(url, headers=headers, timeout=20)
+        r = (httpx.post(url, headers=headers, json=body, timeout=20) if body is not None
+             else httpx.get(url, headers=headers, timeout=20))
     except httpx.HTTPError as e:
         return f"could not connect ({type(e).__name__})"
     if r.status_code == 200:
@@ -27,6 +32,8 @@ def _get(url: str, headers: dict) -> str:
     # Gemini answers a bad key with 400 API_KEY_INVALID rather than 401.
     if r.status_code in (401, 403) or (r.status_code == 400 and "API_KEY_INVALID" in r.text):
         return f"rejected (HTTP {r.status_code}): the key is wrong or expired"
+    if r.status_code == 404:
+        return "not found (HTTP 404)"
     return f"unexpected HTTP {r.status_code}"
 
 
@@ -38,15 +45,21 @@ def check() -> list[tuple[str, str, bool]]:
     hosp = os.environ.get("HOSPITABLE_TOKEN") or os.environ.get("HOSPITABLE_API_KEY")
     if hosp:
         base = os.environ.get("HOSPITABLE_BASE_URL", "https://public.api.hospitable.com/v2")
-        res = _get(base.rstrip("/") + "/properties?per_page=1",
-                   {"Authorization": f"Bearer {hosp}", "Accept": "application/json"})
+        res = _probe(base.rstrip("/") + "/properties?per_page=1",
+                     {"Authorization": f"Bearer {hosp}", "Accept": "application/json"})
         rows.append(("Hospitable", res, res == "ok"))
     else:
         rows.append(("Hospitable", "not set (fine if you use another PMS)", True))
     gem = os.environ.get("GEMINI_API_KEY")
     if gem:
-        model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-        res = _get(f"https://generativelanguage.googleapis.com/v1beta/models/{model}", {"x-goog-api-key": gem})
+        model = os.environ.get("GEMINI_MODEL", BUILTIN_MODEL)
+        # countTokens, not the model's metadata: on 2026-09-30 the metadata of the retired
+        # gemini-2.5-flash still answered 200 while every scoring request got a 404.
+        res = _probe(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:countTokens",
+                     {"x-goog-api-key": gem}, {"contents": [{"parts": [{"text": "ok"}]}]})
+        if res.startswith("not found"):
+            res = (f"model {model} is retired or not available to this key; set GEMINI_MODEL "
+                   f"in .env to a current Flash model")
         rows.append(("Gemini", res, res == "ok"))
     else:
         rows.append(("Gemini", "MISSING: needed for photo scoring", False))
