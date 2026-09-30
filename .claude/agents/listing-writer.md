@@ -151,8 +151,9 @@ Author only this compact shape (omit optional funnel/prior_run when absent):
   "listing_gaps":[{"issue":"","fix":""}], "comps":{"amenity_gaps":[]},
   "diagnostics":{"content_signal":"","traffic_signal":"","occupancy_signal":"",
     "likely_lever":"","handoff":""},
-  "funnel":{"source":"RankBreeze","city_rank":"","views_monthly":{"Aug":687,"Sep":486},
-    "booking_rate_monthly":{"Aug":"7.12%","Sep":"4.69%"},"ctr_vs_similar":"","lever_focus":"",
+  "funnel":{"source":"RankBreeze","city_rank":{"position":139,"page":8},
+    "views_monthly":{"Aug":687,"Sep":486},"booking_rate_monthly":{"Aug":"7.12%","Sep":"4.69%"},
+    "ctr_vs_similar":{"you":"26.85%","similar":"11.43%","note":""},"lever_focus":"",
     "diagnosis":""},
   "prior_run":{"run_date":"","ale_total":0,"title":""}
 }
@@ -165,8 +166,10 @@ The renderer derives summary length and fills photos, comps, occupancy and caden
 Do not retype those blocks. Optional `funnel` is your normalized RankBreeze read with
 `source`, `city_rank`, `views_monthly`, `booking_rate_monthly`, `ctr_vs_similar`,
 `lever_focus` and `diagnosis`. The two monthly fields are objects keyed by month label, as in
-the example, never lists (the renderer rejects a list, costing a repeat turn). Never fill
-unknown metrics with zero.
+the example, never lists (the renderer rejects a list, costing a repeat turn). `city_rank` and
+`ctr_vs_similar` are objects too, never prose: `position` and `page` are integers, and `of` is
+added only when the source gives the total (RankBreeze's summary gives an average rank without
+one). Leave out a field you have no number for. Never fill unknown metrics with zero.
 <!-- END .claude/skills/listing-optimizer/SKILL.md -->
 
 <!-- BEGIN .claude/skills/listing-optimizer/references/ale-rubric.md -->
