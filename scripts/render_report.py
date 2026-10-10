@@ -336,6 +336,38 @@ def merge_machine_blocks(data: dict, workdir: Path) -> list[str]:
     return filled
 
 
+def _usable_json(workdir: Path, name: str, status: dict):
+    if artifacts.excluded(workdir, name, status):
+        return None
+    try:
+        return json.loads((workdir / name).read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return None
+
+
+def fill_current_title(data: dict, workdir: Path) -> str | None:
+    """The report's "Before" title is what guests see: the live Airbnb title read this run,
+    else the PMS public name, never the PMS internal `name` (Bert Perez, 2026-09-29: the
+    writer picked the property name). It replaces the writer's value. Returns the source used."""
+    status = artifacts.run_status(workdir)
+    live = _usable_json(workdir, "live_gallery.json", status) or {}
+    subject = (_usable_json(workdir, "subject.json", status) or {})
+    subject = subject.get("data") if isinstance(subject, dict) and isinstance(subject.get("data"), dict) else {}
+    live_title = ((live.get("listing") or {}).get("title") if isinstance(live, dict)
+                  and live.get("provider") == "airbnb" and isinstance(live.get("listing"), dict) else None)
+    cur = data.get("current") if isinstance(data.get("current"), dict) else {}
+    for title, source in ((live_title, "live Airbnb page"), (subject.get("public_name"), "PMS public name")):
+        if isinstance(title, str) and title.strip():
+            cur["title"] = " ".join(title.split())
+            data["current"] = cur
+            return source
+    internal = subject.get("name")
+    if (isinstance(internal, str) and isinstance(cur.get("title"), str)
+            and " ".join(cur["title"].split()).casefold() == " ".join(internal.split()).casefold()):
+        cur.pop("title")  # no public title known: no Before line beats the wrong one
+    return None
+
+
 def caption_order_note(data: dict) -> str | None:
     """A caption list whose first five photos are not the machine top 5 contradicts the
     Photo Plan in the same report. Overrides are allowed, so this warns rather than fails."""
@@ -532,6 +564,9 @@ def main():
             merged = merge_machine_blocks(data, wd)
             if merged:
                 print(f"[render_report] merged from disk: {', '.join(merged)}")
+            title_source = fill_current_title(data, wd)
+            if title_source:
+                print(f"[render_report] Before title from the {title_source}")
             check_removals(data)
             order_note = caption_order_note(data)
             if order_note:
