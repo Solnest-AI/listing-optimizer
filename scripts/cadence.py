@@ -6,7 +6,7 @@ State: state/refresh_state.json — { "<listing-slug>": { "<item>": "YYYY-MM-DD"
 
 Cadence (from references/ale-rubric.md):
   title 3-4wk · photo rotation 2-3wk · captions 1-2mo · seasonal swap 3-4mo ·
-  the_space rewrite ~4mo · full reshoot 2.5-3yr · conversion audit monthly.
+  the_space rewrite ~4mo · full reshoot 2.5-3yr · conversion audit monthly (each run is one).
 
 Usage:
   python scripts/cadence.py --listing my-listing --check --out cadence.json
@@ -84,6 +84,12 @@ def check(listing: str, today: date) -> list[dict]:
     confirmed = _applied_dates(listing)
     rows = []
     for key, (label, interval) in CADENCE.items():
+        if key == "conversion_audit":
+            # Every run reviews the funnel, copy and photos, so the run itself is the monthly
+            # audit (Ben Pileggi, 2026-09-29); the next one is due a month from today.
+            rows.append({"item": label, "last": f"{today.isoformat()} (this run)",
+                         "due": (today + timedelta(days=interval)).isoformat(), "status": "ok"})
+            continue
         last_s = state.get(key)
         try:
             last = datetime.strptime(str(last_s), "%Y-%m-%d").date() if last_s else None
@@ -98,8 +104,10 @@ def check(listing: str, today: date) -> list[dict]:
             rows.append({"item": label, "last": last_s, "due": due.isoformat(), "status": status})
         else:
             # No record is not the same as overdue: the tool cannot know when photos were
-            # shot or copy was last written outside it, so it does not claim a due date.
-            rows.append({"item": label, "last": "no record", "due": "unknown", "status": "no record"})
+            # shot or copy was last written outside it, so it does not claim a due date. On a
+            # first run "no record / unknown" told the host nothing (Ben Pileggi, 2026-09-29).
+            rows.append({"item": label, "last": "not tracked yet", "due": "starts when you apply a change",
+                         "status": "not tracked"})
     return rows
 
 
@@ -140,7 +148,11 @@ def main():
             Path(args.out).parent.mkdir(parents=True, exist_ok=True)
             Path(args.out).write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
             n_due = sum(1 for r in rows if r["status"] == "DUE")
-            print(f"[cadence] {n_due}/{len(rows)} items DUE → {args.out}")
+            n_new = sum(1 for r in rows if r["status"] == "not tracked")
+            # "0/7 items DUE" on a first run read like "all up to date".
+            summary = (f"{n_due} due, {n_new} not tracked yet (tracking starts when you apply a change)"
+                       if n_new else f"{n_due}/{len(rows)} items due")
+            print(f"[cadence] {summary} → {args.out}")
         else:
             for r in rows:
                 flag = "⚠️ DUE" if r["status"] == "DUE" else r["status"]

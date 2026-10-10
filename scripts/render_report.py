@@ -336,6 +336,38 @@ def merge_machine_blocks(data: dict, workdir: Path) -> list[str]:
     return filled
 
 
+def _usable_json(workdir: Path, name: str, status: dict):
+    if artifacts.excluded(workdir, name, status):
+        return None
+    try:
+        return json.loads((workdir / name).read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return None
+
+
+def fill_current_title(data: dict, workdir: Path) -> str | None:
+    """The report's "Before" title is what guests see: the live Airbnb title read this run,
+    else the PMS public name, never the PMS internal `name` (Bert Perez, 2026-09-29: the
+    writer picked the property name). It replaces the writer's value. Returns the source used."""
+    status = artifacts.run_status(workdir)
+    live = _usable_json(workdir, "live_gallery.json", status) or {}
+    subject = (_usable_json(workdir, "subject.json", status) or {})
+    subject = subject.get("data") if isinstance(subject, dict) and isinstance(subject.get("data"), dict) else {}
+    live_title = ((live.get("listing") or {}).get("title") if isinstance(live, dict)
+                  and live.get("provider") == "airbnb" and isinstance(live.get("listing"), dict) else None)
+    cur = data.get("current") if isinstance(data.get("current"), dict) else {}
+    for title, source in ((live_title, "live Airbnb page"), (subject.get("public_name"), "PMS public name")):
+        if isinstance(title, str) and title.strip():
+            cur["title"] = " ".join(title.split())
+            data["current"] = cur
+            return source
+    internal = subject.get("name")
+    if (isinstance(internal, str) and isinstance(cur.get("title"), str)
+            and " ".join(cur["title"].split()).casefold() == " ".join(internal.split()).casefold()):
+        cur.pop("title")  # no public title known: no Before line beats the wrong one
+    return None
+
+
 def caption_order_note(data: dict) -> str | None:
     """A caption list whose first five photos are not the machine top 5 contradicts the
     Photo Plan in the same report. Overrides are allowed, so this warns rather than fails."""
@@ -345,6 +377,35 @@ def caption_order_note(data: dict) -> str | None:
         return None
     return (f"caption order starts {first} but the Photo Plan recommends {top5}; align them or "
             f"explain the override in the scorecard")
+
+
+def _positive_int(v) -> bool:
+    return type(v) is int and v >= 1
+
+
+def _text(v) -> bool:
+    return isinstance(v, str) and bool(v.strip())
+
+
+def _check_funnel_objects(funnel: dict) -> None:
+    """city_rank and ctr_vs_similar are objects the templates read field by field. Written as
+    prose strings (both 2026-09 writer runs did, following the old docs), they rendered as
+    "City rank: # of  (page )". Blank means absent."""
+    for key in ("city_rank", "ctr_vs_similar"):
+        if funnel.get(key) in ("", None, {}):
+            funnel.pop(key, None)
+    rank = funnel.get("city_rank")
+    if rank is not None and not (
+            isinstance(rank, dict) and _positive_int(rank.get("position"))
+            and all(rank.get(k) is None or _positive_int(rank[k]) for k in ("of", "page"))):
+        raise ValueError('funnel.city_rank must be {"position": 139, "page": 8} ("of": N only when '
+                         'the source gives the total), or left out')
+    ctr = funnel.get("ctr_vs_similar")
+    if ctr is not None and not (
+            isinstance(ctr, dict) and _text(ctr.get("you")) and _text(ctr.get("similar"))
+            and (ctr.get("note") is None or isinstance(ctr["note"], str))):
+        raise ValueError('funnel.ctr_vs_similar must be {"you": "26.85%", "similar": "11.43%", '
+                         '"note": ""}, or left out')
 
 
 def validate_result(data: dict) -> None:
@@ -411,6 +472,7 @@ def validate_result(data: dict) -> None:
         for key in ("views_monthly", "booking_rate_monthly"):
             if funnel.get(key) is not None and not isinstance(funnel[key], dict):
                 raise ValueError(f'funnel.{key} must map month to value, e.g. {{"Aug": 687}}')
+        _check_funnel_objects(funnel)
     card = data.get("ale_scorecard")
     if card is not None:
         if not isinstance(card, list) or not all(isinstance(r, dict) for r in card):
@@ -502,6 +564,9 @@ def main():
             merged = merge_machine_blocks(data, wd)
             if merged:
                 print(f"[render_report] merged from disk: {', '.join(merged)}")
+            title_source = fill_current_title(data, wd)
+            if title_source:
+                print(f"[render_report] Before title from the {title_source}")
             check_removals(data)
             order_note = caption_order_note(data)
             if order_note:

@@ -173,7 +173,7 @@
   {% if data.funnel %}
   <h2>Funnel Diagnostic <span class="muted" style="font-size:12px;font-weight:400">{{ data.funnel.source }} · views = real traffic</span></h2>
   <div class="card">
-    {% if data.funnel.city_rank %}<div><strong>City rank:</strong> #{{ data.funnel.city_rank.position }} of {{ data.funnel.city_rank.of }} · page {{ data.funnel.city_rank.page }}</div>{% endif %}
+    {% if data.funnel.city_rank %}{% set rank = data.funnel.city_rank %}<div><strong>City rank:</strong> #{{ rank.position }}{% if rank.of %} of {{ rank.of }}{% endif %}{% if rank.page %} · page {{ rank.page }}{% endif %}</div>{% endif %}
     {% if data.funnel.views_monthly %}
     <table class="comps" style="margin-top:10px">
       <tr><th>Monthly</th>{% for k in data.funnel.views_monthly.keys() %}<th>{{ k }}</th>{% endfor %}</tr>
@@ -181,7 +181,7 @@
       {% if data.funnel.booking_rate_monthly %}<tr><td>Booking rate</td>{% for k in data.funnel.views_monthly.keys() %}<td>{{ data.funnel.booking_rate_monthly.get(k,'') }}</td>{% endfor %}</tr>{% endif %}
     </table>
     {% endif %}
-    {% if data.funnel.ctr_vs_similar %}<div class="muted" style="font-size:12px;margin-top:8px">CTR {{ data.funnel.ctr_vs_similar.you }} vs {{ data.funnel.ctr_vs_similar.similar }} similar. {{ data.funnel.ctr_vs_similar.note }}</div>{% endif %}
+    {% if data.funnel.ctr_vs_similar %}{% set ctr = data.funnel.ctr_vs_similar %}<div class="muted" style="font-size:12px;margin-top:8px">CTR {{ ctr.you }} vs {{ ctr.similar }} similar.{% if ctr.note %} {{ ctr.note }}{% endif %}</div>{% endif %}
     {% if data.funnel.lever_focus %}<div style="margin-top:10px"><strong>Lever focus:</strong> {{ data.funnel.lever_focus }}</div>{% endif %}
     {% if data.funnel.diagnosis %}<div class="muted" style="font-size:13px;margin-top:4px">{{ data.funnel.diagnosis }}</div>{% endif %}
   </div>
