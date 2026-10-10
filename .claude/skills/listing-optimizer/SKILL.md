@@ -79,7 +79,7 @@ there is no bundled general-purpose importer or live occupancy source for it.
 |---|---|
 | `subject.json` | `{"data":{"name":"","public_name":"","summary":"","description":"","amenities":[],"capacity":{"max":4,"bedrooms":2,"bathrooms":1},"room_details":[],"house_rules":{},"address":{"display":"","city":"","coordinates":{"latitude":0,"longitude":0}},"listings":[{"platform":"airbnb","platform_id":""}]}}` |
 | `images.json` | `{"data":[{"url":"https://...","caption":"","order":0}]}`; unique integer orders |
-| `reviews.json` (optional) | `{"data":[{"reviewed_at":"","platform":"","responded_at":null,"public":{"rating":5,"rating_platform_original":5,"review":""},"private":{"detailed_ratings":[{"type":"cleanliness","rating":5}]}}],"_pull":{"total_available":20,"complete_history":true}}` |
+| `reviews.json` (optional) | `{"data":[{"reviewed_at":"","platform":"","responded_at":null,"public":{"rating":5,"rating_platform_original":5,"review":""},"private":{"detailed_ratings":[{"type":"cleanliness","rating":5}]}}],"_pull":{"total_available":20,"complete_history":true}}`. A source with no host-response field (RankBreeze's reviews have none) adds `"responses_known":false` to `_pull` and leaves `responded_at` out. |
 | `calendar.json` (optional) | `{"data":{"days":[{"date":"YYYY-MM-DD","status":{"available":true,"reason":"AVAILABLE"}}]}}`; no monetary or stay-restriction fields |
 | `channels.json` (optional) | `{"connected_platforms":[],"silent_channels":[]}`; label the source's actual coverage |
 

@@ -192,14 +192,20 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
     live = (lg_file["listing"] if lg_file.get("provider") == "airbnb" and isinstance(lg_file.get("listing"), dict)
             else {})
     comps_file = read("comps.json") or {}
-    drift = []
+    drift, no_pms, compared = [], [], 0
     for field, live_key in (("public_name", "title"), ("summary", "summary"), ("description", "description")):
         lv = live.get(live_key)
         if isinstance(lv, str) and lv.strip():
-            changed = (amenities.norm(subject.get(field)) != amenities.norm(lv) if live_key == "title"
-                       else _says_more(lv, subject.get(field)))  # punctuation or extra PMS sections are not drift
-            if changed:
-                drift.append(live_key)
+            pms_text = subject.get(field)
+            if not (isinstance(pms_text, str) and pms_text.strip()):
+                # Nothing to compare: some PMS read tools return no listing copy at all (Hostfully,
+                # Anna Ohmes 2026-09-29), and an empty field made every live word look "new".
+                no_pms.append(live_key)
+            else:
+                compared += 1
+                if (amenities.norm(pms_text) != amenities.norm(lv) if live_key == "title"
+                        else _says_more(lv, pms_text)):  # punctuation or extra PMS sections are not drift
+                    drift.append(live_key)
             subject[field] = lv
     # Bound only prose. Never truncate serialized JSON and silently lose facts
     # appearing after a long description (capacity, amenities and house rules).
@@ -232,7 +238,9 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
         A(f"copy_source: LIVE Airbnb page, read this run ({lg_file.get('fetched_at')}). Title, summary, "
           f"description and amenity boxes above are what guests see now"
           + (f". PMS copy differs from live Airbnb: {', '.join(drift)}. Say so; edits made only in the PMS "
-             f"may not be reaching Airbnb." if drift else ". PMS copy matches."))
+             f"may not be reaching Airbnb." if drift else ". PMS copy matches." if compared else ".")
+          + (f" PMS copy not available to compare: {', '.join(no_pms)} (the PMS returned none), so say "
+             f"nothing about drift for {'it' if len(no_pms) == 1 else 'those'}." if no_pms else ""))
     else:
         A("copy_source: PMS copy ONLY. The live Airbnb page could not be read this run, so nothing here is "
           "verified as what guests see. Do not report drift, live amenity boxes or live captions as facts; "
@@ -361,6 +369,13 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
     # The API's lifetime total; anything that is not a whole count is treated as unknown.
     lifetime = lifetime if type(lifetime) is int and lifetime >= 0 else None
     complete = bool(pull.get("complete_history")) or (lifetime is not None and len(rv) >= lifetime)
+    # Whether the source says which reviews have a host response. RankBreeze's review rows have no
+    # such field (id, room_id, name, tag, rating, comment, date; checked 2026-10-10), so every
+    # review counted as unanswered (Anna Ohmes, 2026-09-29). The staged _pull.responses_known
+    # wins; without it, rows that never carry a responded_at key mean "unknown".
+    responses_known = pull.get("responses_known")
+    if not isinstance(responses_known, bool):
+        responses_known = not rv or any(isinstance(r, dict) and "responded_at" in r for r in rv)
     denom = lifetime if lifetime is not None else len(rv)
     A(f"\n# REVIEWS ({min(len(rv), review_cap)} shown; {len(rv)} pulled of "
       f"{denom if denom else 0} lifetime)")
@@ -418,14 +433,19 @@ def build(d: Path, review_cap: int = REVIEW_CAP) -> str:
           f"{list(platforms)} uses a rating scale this code cannot derive. DO NOT cite any "
           f"category average in the report or the ALE scorecard until that is fixed — quote "
           f"the review text instead. (Verified scales: airbnb 1-5, booking 1-10, direct 1-5.)")
-    A(f"unanswered_reviews({scope}): {unanswered}"
-      + (f" ({answerable} can still be answered; the rest no longer accept a host response)"
-         if answerable != unanswered else ""))
+    if responses_known:
+        A(f"unanswered_reviews({scope}): {unanswered}"
+          + (f" ({answerable} can still be answered; the rest no longer accept a host response)"
+             if answerable != unanswered else ""))
+    else:
+        A(f"unanswered_reviews({scope}): unknown ({pull.get('source') or 'this review source'} does not say "
+          f"which reviews have a host response). Do not report a count or call any review unanswered.")
     if not complete:
+        example = (f"{unanswered} of the last {len(rv)} unanswered" if responses_known
+                   else f"average rating over the last {len(rv)}")
         A(f"NOTE: aggregates above cover the {len(rv)} most recent reviews, NOT all {denom}. "
-          f"Report them as recent-window figures (e.g. \"{unanswered} of the last {len(rv)} "
-          f"unanswered\"), never as a lifetime total. Re-pull with --all-reviews if the user "
-          f"asks for the lifetime number.")
+          f"Report them as recent-window figures (e.g. \"{example}\"), never as a lifetime total. "
+          f"Re-pull with --all-reviews if the user asks for the lifetime number.")
 
     # ── Funnel / occupancy / prior run ────────────────────────────────
     # Formatted whole, never sliced: a fixed-length cut of serialized JSON drops whole
