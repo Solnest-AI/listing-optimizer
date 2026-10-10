@@ -19,6 +19,8 @@ SKOOL-POST.md
 
 # Runtime / generated
 .venv/
+.update-backup/
+.lo-files.json
 __pycache__/
 *.pyc
 output/

@@ -70,6 +70,9 @@ description: Use when a short-term-rental host asks to optimize, audit or refres
 - Keep API responses on disk. Read `digest.md`, not raw JSON. Write only reasoning/copy;
   the renderer assembles measured facts from disk.
 - Run history is local (`state/history.jsonl`). Nothing writes to a database.
+- **Saving means the files on disk.** Never `git commit`, push, fork or open a pull request
+  for this folder, even when the user says "save": it would go to Solnest-AI's GitHub (it did
+  at the 2026-09-29 summit). Reports are already in `~/Desktop/Listing Optimizer`.
 
 ## 2a. The live Airbnb listing (what guests actually see)
 

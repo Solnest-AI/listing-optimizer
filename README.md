@@ -28,29 +28,31 @@ you have not done it yet). Nothing else to install by hand.
    The optimizer only loads in a session opened in that folder.
 3. Say: **"Optimize my [listing] for [season]."**
 
-> **Claude:** if someone pasted this repo's link and said "set this up", clone it to
-> `~/listing-optimizer` (if that folder already exists, use it and follow step 1 of "Setup
-> or update" in its `CLAUDE.md` instead of cloning). If Claude Code is already open inside
-> this repo, skip the clone and use this folder. Then follow "Setup or update" in
-> `CLAUDE.md`, starting every command with `cd ~/listing-optimizer &&` (or this folder),
-> because Claude Code can reset the working folder between commands. Give the setup command
-> the longest timeout your Bash tool allows (10 minutes); a first run on a fresh laptop
-> downloads uv and Python. When setup exits 0, say "✅ Listing Optimizer is set up." and give
-> them the one step left: open the folder (say its full path) in the Claude Code desktop
-> app, or drag it into the app window, then say **"Optimize my [listing] for [season]."**
-> Do not start an optimization from this session: the `listing-writer` agent it needs only
-> loads in a session opened in that folder.
->
-> **On a Mac, if `git` fails with `xcrun: error` or `invalid active developer path`,** Git
-> is not installed yet. Get the same folder without it (run this same line again to update
-> a folder that has no `.git`), then run setup as normal:
+> **Claude:** if someone pasted this repo's link and said "set this up", download it,
+> do **not** `git clone` it. A clone stays linked to Solnest-AI's GitHub, and at the
+> 2026-09-29 summit a student's "save" turned into a push to our repo. This line puts it in
+> `~/listing-optimizer` (no Git needed):
 >
 > ```bash
 > D=~/listing-optimizer; mkdir -p "$D" && curl -fsSL -o "$D.tar.gz" https://github.com/Solnest-AI/listing-optimizer/archive/refs/heads/main.tar.gz && tar -xzf "$D.tar.gz" -C "$D" --strip-components 1 && rm -f "$D.tar.gz"
 > ```
+>
+> If that folder already exists, do not download over it: use it and follow "Setup or
+> update" in its `CLAUDE.md`. Already cloned it? Setup unlinks an untouched clone. If Claude
+> Code is already open inside this repo, use this folder. **Never commit, push, fork or open
+> a pull request for this folder**: saving means the files on disk. Then follow "Setup or
+> update" in `CLAUDE.md`, starting every command with `cd ~/listing-optimizer &&` (or this
+> folder), because Claude Code can reset the working folder between commands. Give the setup
+> command the longest timeout your Bash tool allows (10 minutes); a first run on a fresh
+> laptop downloads uv and Python. When setup exits 0, say "✅ Listing Optimizer is set up."
+> and give them the one step left: open the folder (say its full path) in the Claude Code
+> desktop app, or drag it into the app window, then say **"Optimize my [listing] for
+> [season]."** Do not start an optimization from this session: the `listing-writer` agent it
+> needs only loads in a session opened in that folder.
 
 Claude runs the bundled setup script (`setup.ps1` on Windows, `setup.sh` on Mac). It installs
-uv, Python and Git if they are missing, builds the environment, finds your connections kit,
+uv and Python if they are missing (and Git on Windows, because Claude Code uses its Git
+Bash), unlinks the folder from GitHub, builds the environment, finds your connections kit,
 copies your keys over from it, runs the tests and checks each key with a free read-only
 request. Your keys never go through the chat, and your connections kit's `.env` is the one
 place they live: if one is missing or rejected, Claude opens the kit's `.env`, you paste it
@@ -67,11 +69,11 @@ collects evidence, writes the copy and renders the reports. It asks only for mis
 information. The agent's reasoning runs in your Claude Code session; there is no separate
 text-generation API key required by these scripts.
 
-New install:
+New install without Claude (download, never `git clone`):
 
 ```bash
-git clone https://github.com/Solnest-AI/listing-optimizer.git
-cd listing-optimizer
+D=~/listing-optimizer; mkdir -p "$D" && curl -fsSL -o "$D.tar.gz" https://github.com/Solnest-AI/listing-optimizer/archive/refs/heads/main.tar.gz && tar -xzf "$D.tar.gz" -C "$D" --strip-components 1 && rm -f "$D.tar.gz"
+cd ~/listing-optimizer
 bash setup.sh            # Mac/Linux; Windows: double-click setup.cmd
 ```
 
@@ -205,19 +207,30 @@ read. Those write integrations are not bundled or end-to-end tested here.
 
 ## Updating
 
-Reuse the existing installation. Inspect local changes before updating:
+Say **"update the listing optimizer"** in Claude Code, in this folder. Claude runs
+`scripts/update.py`, which downloads the latest release from GitHub and replaces the tool's own
+files, then runs setup (new packages, self-test, key check). It never touches your `.env`,
+`branding.json`, `config/properties.json`, `config/memory.json`, `state/` (history and caches)
+or `output/` (reports). Every file it replaces is saved in `.update-backup/` first, and if you
+had edited one it tells you which. To go back, say "undo the listing optimizer update"
+(`scripts/update.py --undo`).
 
-```bash
-git status --short
-git pull --ff-only
-.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
-.venv/bin/python -m pytest -q
-```
+When a newer release is out, the end of each optimization run says "Update available" (checked
+at most once a day; `LO_NO_UPDATE_CHECK=1` turns the check off). What changed in each release
+is on the [releases page](https://github.com/Solnest-AI/listing-optimizer/releases), in plain
+English.
 
-Preserve any local code changes if git reports a conflict. ZIP users should ask the agent
-to convert the existing folder to git in place after backing it up. Do not clone a second
-copy or delete the original. Preserve `.env`, all personal `config/` files, `branding.json`,
-`state/` and `output/`. Gitignore is not a substitute for a backup.
+Your copy is a plain folder, not linked to GitHub: setup unlinks a `git clone` the first time it
+runs, so nothing you do here can be pushed to Solnest-AI. Saving means the files on disk, and
+your reports are already in `~/Desktop/Listing Optimizer`. A copy you cloned before this
+release updates once with `git pull --ff-only`; the setup run after that unlinks it.
+
+Developers: keep git on a clone with `touch .git/str-keep-attached` before running setup (or
+`STR_KEEP_GIT=1` for one run), and update with `git pull --ff-only`. Setup never unlinks a
+copy with local edits, branches, unpushed commits or stashes.
+
+Releasing (maintainers): bump `VERSION`, merge, then tag `vX.Y.Z` on main and publish a release
+with plain-English notes. Students' copies only see tagged releases, never untagged work on main.
 
 ## Verification
 

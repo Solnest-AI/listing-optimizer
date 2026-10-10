@@ -174,6 +174,9 @@ if (-not (Test-Path $VenvPy)) {
 & $uv pip install --python $VenvPy --quiet -r requirements.txt -r requirements-dev.txt
 if ($LASTEXITCODE -ne 0) { Fail 'Package install failed. Check your internet connection and run setup again.' }
 Ok "Packages installed in .venv (Python $(& $VenvPy -c 'import sys; print(sys.version.split()[0])'))"
+# A git clone stays linked to Solnest-AI's GitHub, and "save" then tries to push there (2026-09-29
+# summit). Unlink an untouched copy; a working copy is kept as is. Always exits 0.
+& $VenvPy scripts\detach_from_github.py | ForEach-Object { Ok ($_ -replace '^\[setup\] ', '') }
 
 # ---------------------------------------------------------------- 4. keys
 Step 4 'API keys: copied from your STR Secrets Connections kit'
