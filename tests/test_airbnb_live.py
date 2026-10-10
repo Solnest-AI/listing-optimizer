@@ -48,6 +48,11 @@ def _page(title="Ski-in/out retreat | Hot tub &amp; arcade", sections=True, amen
             {"__typename": "AmenityItemsGroup", "title": "Not included", "amenities": [
                 {"__typename": "AmenityItem", "available": False, "title": "Air conditioning"}]}]}))
     if photos:
+        # Real pages carry the listing order in heroMedia (og:image is its first photo) and the
+        # room-by-room photo tour separately; see test_live_photo_order.py.
+        parts.append(f'<meta property="og:image" content="{MUS}a.jpeg?im_w=720">')
+        parts.append('{"heroMedia":' + _js({"__typename": "HeroItemConnection", "edges": [
+            {"node": {"__typename": "HeroImageItem", "image": {"uri": MUS + n}}} for n in ("a.jpeg", "b.jpeg")]}) + "}")
         parts.append(_js({"__typename": "PhotoTourModalSection", "mediaItems": [
             {"__typename": "Image", "baseUrl": MUS + "a.jpeg", "accessibilityLabel": "Arcade lounge",
              "imageMetadata": {"caption": "Arcade lounge"}},

@@ -57,7 +57,8 @@ one `listing-writer` per queued line, back to back as above (one first, then wav
 5), passing the season; owner facts reach
 the digest from `config/properties.json` (`season`, `owner_facts`, `notes`). A writer that
 replies `PHOTO FALLBACK REQUIRED` needs section 2b first. A Gemini daily quota stops new
-listings; rerun with `--resume` after midnight Pacific. Exit 2 means partial (a listing failed,
+listings; rerun with `--resume` after midnight Pacific. A STOPPED line that names a Gemini
+model or setting is not a quota: relay its Fix in one line before anything else. Exit 2 means partial (a listing failed,
 was held, or the run stopped): the WRITER QUEUE it printed is still valid, so launch those
 writers, and `--resume` retries the rest, including any listing with a failed step. Run one
 portfolio at a time; two at once can overwrite each other's `portfolio.json`. Finish with
@@ -137,6 +138,11 @@ on Airbnb, and the digest's copy and amenity gaps come from the live page (`copy
 plan uses; never present PMS findings as Airbnb facts.
 
 ## 2b. Photo fallback (only when the digest says PHOTO FALLBACK REQUIRED)
+
+When the photos step instead failed with `Photos not scored. ... Fix: ...` (a retired model
+or a setting Google rejects), there is no fallback file on purpose: do not score the photos
+yourself. Tell the user that line (it says what to fix), write the report without a photo
+plan and say why.
 
 Gemini was missing or failed on some photos. Open `photo_fallback.json` in the working
 dir and Read each `local_path` image. Score every photo against its `rubric` exactly as

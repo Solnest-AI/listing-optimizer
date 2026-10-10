@@ -92,7 +92,7 @@ setup and the kit's fan-out copy them here and would overwrite a value typed her
 |---|---|
 | `HOSPITABLE_TOKEN` | Read your property content, photos, reviews and availability. `HOSPITABLE_API_KEY` is also accepted. |
 | `AIRROI_API_KEY` | Competitor data. Obtain through [AirROI developer access](https://www.airroi.com/api/developer/activate). |
-| `GEMINI_API_KEY` | Photo scoring. Obtain through [Google AI Studio](https://aistudio.google.com/apikey). Access and quotas depend on your account. |
+| `GEMINI_API_KEY` | Photo scoring. Obtain through [Google AI Studio](https://aistudio.google.com/apikey). Access and quotas depend on your account (see the free tier note below). |
 
 API keys and personal files are gitignored. Do not paste them into reports or commit them.
 Optional: copy `branding.example.json` to `branding.json` and
@@ -134,6 +134,23 @@ passed to the Hospitable flag. An Airbnb URL alone has no bundled importer in th
 - Gemini outputs record actual requests, downloads and returned token usage. An expired
   key or missing model cancels remaining queued batches. Each transient failure has at
   most three attempts; permanent failures are not repeatedly billed.
+- Photos are scored with `gemini-3.8-flash` (Google closed `gemini-2.5-flash` to new keys
+  in September 2026). Leave `GEMINI_MODEL` out of `.env` unless you have a reason; the
+  built-in default is kept current. Thinking is turned off, so each photo costs only its
+  image and a short answer.
+- If Google refuses the request itself (a retired model, or a setting it no longer
+  accepts), the photo step stops and says what to fix. Those photos are not handed to
+  Claude to score instead, because the same error would come back on every run.
+
+**Gemini free tier.** A free Gemini key is enough to start, but its limits are small:
+about 5 requests a minute and a small daily cap on `gemini-3.8-flash` (Google sets these
+and changes them; see [Google's rate limits](https://ai.google.dev/gemini-api/docs/rate-limits)).
+One request scores 5 photos, so a 72-photo gallery needs about 15 requests and a large
+gallery can use up the day's free requests partway through. Nothing is lost when that
+happens: scores already made are kept, and the run tells you to rerun after midnight
+Pacific. Adding billing to the key in Google AI Studio raises the limits. A model with no
+free tier at all (Pro models, for example) is reported as exactly that, not as a used-up
+daily quota.
 - The agent reads one digest and writes only copy and reasoning. Shared instructions
   avoid repeating historical research and debugging stories on every run.
 
