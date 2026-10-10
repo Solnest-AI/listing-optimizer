@@ -18,15 +18,15 @@ def test_untracked_items_say_no_record_not_due(tmp_path, monkeypatch):
     cadence.mark("cabin", ["title"], date(2026, 8, 1))
     rows = {r["item"]: r for r in cadence.check("cabin", date(2026, 9, 25))}
     assert rows["Title"]["status"] == "DUE"
-    assert rows["Full reshoot"]["status"] == "no record"
-    assert rows["Full reshoot"]["due"] == "unknown"
+    assert rows["Full reshoot"]["status"] == "not tracked"
+    assert rows["Full reshoot"]["due"] == "starts when you apply a change"
 
 
 def test_malformed_date_in_state_is_no_record_not_a_crash(tmp_path, monkeypatch):
     monkeypatch.setattr(cadence, "STATE_PATH", tmp_path / "state.json")
     (tmp_path / "state.json").write_text('{"cabin": {"title": "last tuesday"}}')
     rows = {r["item"]: r for r in cadence.check("cabin", date(2026, 9, 25))}
-    assert rows["Title"]["status"] == "no record"
+    assert rows["Title"]["status"] == "not tracked"
 
 
 def test_html_report_does_not_paint_no_record_green():
