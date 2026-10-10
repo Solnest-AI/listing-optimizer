@@ -103,6 +103,10 @@ clearly labelled degraded report. Exit 0 can mean degraded: inspect the status s
 - Reviews: 20 newest in one request. `--all-reviews` is opt-in. Report the sample scope.
 - AirROI: one call for a fresh coordinate pool, a second address call only if it is empty;
   cache 14 days. Exclude the subject's Airbnb ID from its own competitor pool.
+- Photos: `gemini-3.8-flash` (default; `GEMINI_MODEL` overrides) with `thinkingBudget: 0` on
+  every Flash model. Never send `thinkingLevel: "minimal"`: 3.8-flash rejects it with HTTP 400
+  (measured 2026-10-10). A 400 or 404 from Gemini stops the photo step with a Fix line and
+  never goes to the Claude-vision fallback, which would hide it on every run.
 - Photos: five distinct images per Gemini request, two concurrent batches, bounded
   transient retries. Cache scores 120 days by full image URL, model and rubric version.
   `--batch-size 1` on `analyze_photos.py` enables individual scoring for comparison.

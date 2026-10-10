@@ -42,11 +42,24 @@ try:  # standalone: load keys from the project .env (gitignored)
 except ImportError:
     pass
 
-DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+# gemini-2.5-flash stopped serving keys made after 2026-09-29 (HTTP 404 "no longer available to
+# new users ... use models/gemini-3.8-flash"), which sent every photo to the Claude-vision
+# fallback. check_keys.py sends its test request to this same model.
+BUILTIN_MODEL = "gemini-3.8-flash"
 
-# BUMP THIS whenever RUBRIC or _SCHEMA changes. It is part of the cache key, so a rubric
-# change invalidates every cached score instead of silently mixing old and new scales.
-RUBRIC_VERSION = 3
+
+def configured_model() -> str:
+    """GEMINI_MODEL from .env, else the built-in default. A blank or comment-only line is unset."""
+    return (os.environ.get("GEMINI_MODEL") or "").split("#")[0].strip() or BUILTIN_MODEL
+
+
+DEFAULT_MODEL = configured_model()
+
+# BUMP THIS whenever RUBRIC, _SCHEMA or the generation config changes. It is part of the cache
+# key, so a change invalidates every cached score instead of silently mixing old and new scales.
+# v4: thinking off for every Flash model. Scores cached by students who set
+# GEMINI_MODEL=gemini-3.8-flash by hand were made with thinking on.
+RUBRIC_VERSION = 4
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 # Closed set of "beats" a photo can cover. The top-5 cover set must hit FIVE DIFFERENT
@@ -209,18 +222,39 @@ QUOTA_MESSAGES = {
              "then, scores already cached are kept",
     "long_wait": f"Gemini asked to wait longer than {RATE_WAIT_MAX}s; rerun the same command later, "
                  "scores already cached are kept",
+    "no_free_tier": "this Gemini model has no free tier on your key (Google's limit for it is 0); "
+                    "use a Flash model: delete the GEMINI_MODEL line from .env, or add billing to the key",
 }
+# Google's 429 for a model the key may not use at all says "limit: 0" for each quota it names.
+_LIMIT_ZERO = re.compile(r"\blimit:\s*0\b")
+
+
+def _google_message(r) -> str:
+    """Google's one-line reason from an error response ("" when there is none)."""
+    try:
+        msg = (r.json().get("error") or {}).get("message") or ""
+    except (ValueError, AttributeError):
+        msg = ""
+    return " ".join(str(msg).split())[:240]
 
 
 def _rate_limit(r) -> tuple[float | None, str | None]:
     """How long a 429 asks us to wait: (seconds, None) to retry, or (None, reason) to stop.
 
     Gemini names the exhausted quota in QuotaFailure.violations[].quotaId and the wait in
-    RetryInfo.retryDelay (for example "37s")."""
+    RetryInfo.retryDelay (for example "37s"). A limit of 0 is checked first: a model with no
+    free tier also names PerDay quota ids, and was reported as "daily quota exhausted" (Bert,
+    gemini-pro-latest on a free key, 2026-09-29)."""
     try:
-        details = (r.json().get("error") or {}).get("details") or []
-    except ValueError:
-        details = []
+        err = r.json().get("error") or {}
+        details = err.get("details") or []
+    except (ValueError, AttributeError):
+        err, details = {}, []
+    violations = [v for d in details if isinstance(d, dict) and str(d.get("@type", "")).endswith("QuotaFailure")
+                  for v in d.get("violations") or [] if isinstance(v, dict)]
+    if _LIMIT_ZERO.search(str(err.get("message") or "")) or any(
+            str(v.get("quotaValue", "")).strip() == "0" for v in violations):
+        return None, "no_free_tier"
     delay = None
     for d in details if isinstance(details, list) else []:
         kind = str(d.get("@type", "")) if isinstance(d, dict) else ""
@@ -237,6 +271,35 @@ def _rate_limit(r) -> tuple[float | None, str | None]:
     if delay is not None and delay > RATE_WAIT_MAX:
         return None, "long_wait"
     return delay, None
+
+
+def generation_config(model: str, schema: dict, max_tokens: int) -> dict:
+    """Structured JSON at temperature 0 with thinking OFF.
+
+    Thought tokens count against maxOutputTokens, and 512 per photo leaves no room for them:
+    gemini-3.8-flash thinks by default (~17k thought tokens on one 2026-09-29 run). Every Flash
+    model takes thinkingBudget 0. Measured live 2026-10-10 on gemini-3.8-flash: thinkingBudget 0
+    with temperature 0 returned HTTP 200, zero thought tokens and a valid score, while
+    thinkingLevel "minimal" (open PR #2's setting) returned HTTP 400 INVALID_ARGUMENT, so it is
+    never sent. Non-Flash models cannot turn thinking off and get no thinkingConfig; a run that
+    thinks past the budget fails with MAX_TOKENS and says to use a Flash model."""
+    config = {"response_mime_type": "application/json", "response_schema": schema,
+              "temperature": 0, "maxOutputTokens": max_tokens}
+    if "flash" in model.lower():
+        config["thinkingConfig"] = {"thinkingBudget": 0}
+    return config
+
+
+def settings_error(model: str, status: int, google: str) -> str:
+    """Student-facing text for a request Google refuses on every call. The fix comes before
+    Google's own words: run_pipeline shows the first ~200 characters. No em-dashes."""
+    if status == 404:
+        what = f"Gemini model {model} is retired or not open to your key"
+        fix = "delete the GEMINI_MODEL line in .env, or set it to a current Flash model"
+    else:
+        what = f"Gemini rejected the photo-scoring settings for {model}"
+        fix = "update the Listing Optimizer and delete any GEMINI_MODEL line in .env"
+    return f"{what}. Fix: {fix}. Google said (HTTP {status}): {google or 'no reason given'}"
 
 
 async def _generate_scores(client, model, key, prepared, stats, fatal, attempts):
@@ -260,11 +323,8 @@ async def _generate_scores(client, model, key, prepared, stats, fatal, attempts)
     for photo, mime, b64 in prepared:
         parts.extend([{"text": f"PHOTO_ORDER={photo['order']}"},
                       {"inline_data": {"mime_type": mime, "data": b64}}])
-    config = {"response_mime_type": "application/json", "response_schema": schema,
-              "temperature": 0, "maxOutputTokens": 512 * len(prepared) + 256}
-    if model.startswith("gemini-2.5-flash"):
-        config["thinkingConfig"] = {"thinkingBudget": 0}
-    body = {"contents": [{"parts": parts}], "generationConfig": config}
+    body = {"contents": [{"parts": parts}],
+            "generationConfig": generation_config(model, schema, 512 * len(prepared) + 256)}
     try:
         for attempt in range(attempts):
             stats["api_calls"] += 1
@@ -278,9 +338,17 @@ async def _generate_scores(client, model, key, prepared, stats, fatal, attempts)
                     return fail("Gemini request timed out or network unavailable")
                 await asyncio.sleep(2 ** attempt)
                 continue
-            if r.status_code in (401, 403, 404):
+            google = _google_message(r) if r.status_code >= 400 else ""
+            # A 400 that is not a bad key, or a 404, is the request itself: every batch would
+            # get the same answer. Stop, and keep the photos OUT of the Claude-vision fallback
+            # (main() exits non-zero), or the fallback hides the problem on every run.
+            if (r.status_code == 400 and "API_KEY_INVALID" not in r.text) or r.status_code == 404:
+                stats["config_error"] = stats["fatal_reason"] = settings_error(model, r.status_code, google)
                 fatal.set()
-                return fail(f"Gemini HTTP {r.status_code}; check key/model access")
+                return fail(stats["fatal_reason"])
+            if r.status_code in (400, 401, 403):
+                fatal.set()
+                return fail(f"Gemini HTTP {r.status_code}; the key is wrong, expired or not allowed this model")
             if r.status_code == 429:
                 wait, exhausted = _rate_limit(r)
                 if exhausted:
@@ -302,6 +370,9 @@ async def _generate_scores(client, model, key, prepared, stats, fatal, attempts)
         for field in ("promptTokenCount", "candidatesTokenCount", "thoughtsTokenCount", "totalTokenCount"):
             stats[field] = stats.get(field, 0) + int(usage.get(field) or 0)
         cands = jr.get("candidates") or []
+        if cands and cands[0].get("finishReason") == "MAX_TOKENS":
+            return fail(f"Gemini ran out of output room on {model} (a model that thinks before "
+                        f"answering uses it up); use a Flash model")
         if not cands or cands[0].get("finishReason") != "STOP":
             return fail("Gemini returned blocked, missing or incomplete output")
         parts = (cands[0].get("content") or {}).get("parts") or []
@@ -752,6 +823,19 @@ def main():
     scored = [merged[p["order"]] for p in photos if p["order"] in merged]
 
     unscored = [p for p in photos if not merged.get(p["order"], {}).get("scored")]
+    if stats.get("config_error"):
+        # Google refuses the request itself (a retired model, a rejected setting), so every run
+        # would get the same answer. The Claude-vision fallback would hide that on every run for
+        # good: stop here, out loud, with the fix.
+        if out_path:
+            out_path.write_text(json.dumps({"error": "gemini_settings_rejected", "config_error": stats["config_error"],
+                                            "photos": scored, "usage": stats, "model": args.model,
+                                            "rubric_version": RUBRIC_VERSION, "submitted_count": len(photos),
+                                            "scored_count": sum(1 for p in scored if p.get("scored"))},
+                                           indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"[analyze_photos] STOPPED: {stats['config_error']}\n  {len(unscored)} photo(s) were NOT "
+              f"sent to the Claude-vision fallback: the same error would repeat on every run.")
+        sys.exit(f"Photos not scored. {stats['config_error']}")
     fallback = None
     if unscored:
         reason = ("GEMINI_API_KEY not found" if not key

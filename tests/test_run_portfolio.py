@@ -47,7 +47,8 @@ def _fake_env(tmp_path, monkeypatch, outcomes):
         (wd / "digest.md").write_text("digest")
         (wd / "comps.json").write_text(json.dumps({"fetch": {"calls": 1}}))
         usage = {"api_calls": 5, "totalTokenCount": 100, **extra.get("usage", {})}
-        (wd / "photo_scores.json").write_text(json.dumps({"usage": usage, "scored_count": 20}))
+        (wd / "photo_scores.json").write_text(json.dumps({"usage": usage, "scored_count": 20,
+                                                          **extra.get("photos", {})}))
         if extra.get("fallback"):
             (wd / "photo_fallback.json").write_text("{}")
         return SimpleNamespace(returncode=code, stdout="ok", stderr="")
@@ -83,6 +84,29 @@ def test_gemini_daily_quota_stops_new_listings_and_holds_the_hit_one(tmp_path, m
     assert by["b-house"]["action"].startswith("not started")
     assert sum("run_pipeline.py" in " ".join(c) for c in calls) == 1
     assert "daily quota" in report["stopped"]
+
+
+def test_a_gemini_settings_error_stops_new_listings_with_the_fix(tmp_path, monkeypatch):
+    """Every listing would get the same HTTP 400/404 (a retired model, a rejected setting), so the
+    portfolio stops after the first and says what to fix, not "rerun later"."""
+    err = ("Gemini rejected the photo-scoring settings for gemini-3.8-flash. Fix: update the Listing "
+           "Optimizer and delete any GEMINI_MODEL line in .env. Google said (HTTP 400): no")
+    runner, calls = _fake_env(tmp_path, monkeypatch, {
+        "a-house": (0, "degraded", {"photos": {"config_error": err, "scored_count": 0}}),
+        "b-house": (0, "ready", {})})
+    report = rp.run(_args(), runner)
+    by = {r["slug"]: r for r in report["listings"]}
+    assert by["b-house"]["action"].startswith("not started")
+    assert sum("run_pipeline.py" in " ".join(c) for c in calls) == 1
+    assert "Fix: update the Listing Optimizer" in report["stopped"] and "later" not in report["stopped"]
+
+
+def test_a_model_with_no_free_tier_stops_with_the_right_reason(tmp_path, monkeypatch):
+    runner, _ = _fake_env(tmp_path, monkeypatch, {
+        "a-house": (0, "ready", {"usage": {"quota_exhausted": "no_free_tier"}, "fallback": True}),
+        "b-house": (0, "ready", {})})
+    report = rp.run(_args(), runner)
+    assert "free tier" in report["stopped"] and "no_free_tier" not in report["stopped"]
 
 
 def test_resume_skips_listings_already_gathered(tmp_path, monkeypatch):

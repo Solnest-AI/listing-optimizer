@@ -8,7 +8,9 @@
 
 One failed listing never stops the others. A Gemini daily quota stops new listings from
 starting (they would all fall back to Claude-vision scoring, the most expensive path);
-rerun with --resume after midnight Pacific and cached photo scores are kept.
+rerun with --resume after midnight Pacific and cached photo scores are kept. A model with no
+free tier on the key, or a request Google rejects outright (a retired model, a rejected
+setting), also stops new listings: every one would get the same answer.
 Slugs are stable per property: state/slugs.json remembers them, config/properties.json can
 pin one with "property_id", and a new property gets one from its internal name (the public
 title is what this tool rewrites, so it cannot key history).
@@ -117,6 +119,7 @@ def listing_facts(wd: Path) -> dict:
         "gemini_tokens": usage.get("totalTokenCount"),
         "photos_scored": photos.get("scored_count"),
         "quota_exhausted": usage.get("quota_exhausted"),
+        "gemini_settings_error": photos.get("config_error"),
         "photos_pending": (wd / "photo_fallback.json").exists(),
         "has_digest": digest is not None,
         "owner_notes_in_digest": "# OWNER NOTES" in (digest or ""),
@@ -166,7 +169,13 @@ def run(args, runner=subprocess.run) -> dict:
             log.parent.mkdir(parents=True, exist_ok=True)
             log.write_text((r.stdout or "") + (r.stderr or ""), encoding="utf-8")
             rec.update(listing_facts(wd), action=f"pipeline exit {r.returncode}", seconds=round(time.time() - t0, 1))
-            if rec.get("quota_exhausted"):
+            # Each of these would hit every remaining listing the same way.
+            if rec.get("gemini_settings_error"):
+                stop = f"during {slug}: {rec['gemini_settings_error']}"
+            elif rec.get("quota_exhausted") == "no_free_tier":
+                stop = (f"during {slug}: the Gemini model in .env has no free tier on this key; delete the "
+                        f"GEMINI_MODEL line (or add billing to the key), then rerun with --resume")
+            elif rec.get("quota_exhausted"):
                 stop = f"Gemini {rec['quota_exhausted']} quota exhausted during {slug}; rerun with --resume later"
         print(f"[portfolio] {slug}: {rec['status']}{' (photos pending)' if rec['photos_pending'] else ''} "
               f"| AirROI {rec['airroi_calls']} | Gemini {rec['gemini_requests']} req / {rec['gemini_tokens']} tok",
