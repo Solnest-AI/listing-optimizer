@@ -10,7 +10,6 @@
   all 7 items and the console said "0/7 items DUE", which reads like "all up to date".
 """
 import json
-import subprocess
 import sys
 from datetime import date
 from pathlib import Path
@@ -100,12 +99,11 @@ def test_this_run_counts_as_the_conversion_audit(tmp_path, monkeypatch):
     assert audit == {"item": "Conversion audit", "last": "2026-10-10 (this run)", "due": "2026-11-09", "status": "ok"}
 
 
-def test_the_console_never_says_zero_due_when_nothing_is_tracked(tmp_path):
-    env_state = tmp_path / "state"
-    script = Path(__file__).resolve().parent.parent / "scripts" / "cadence.py"
-    code = (f"import sys, runpy, pathlib; sys.argv = {['cadence.py', '--listing', 'cabin', '--check', '--today', '2026-10-10', '--out', str(tmp_path / 'c.json')]!r}; "
-            f"sys.path.insert(0, {str(script.parent)!r}); import cadence; "
-            f"cadence.STATE_PATH = pathlib.Path({str(env_state / 'r.json')!r}); "
-            f"cadence.HISTORY_PATH = pathlib.Path({str(env_state / 'h.jsonl')!r}); cadence.main()")
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout
+def test_the_console_never_says_zero_due_when_nothing_is_tracked(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cadence, "STATE_PATH", tmp_path / "state.json")
+    monkeypatch.setattr(cadence, "HISTORY_PATH", tmp_path / "history.jsonl")
+    monkeypatch.setattr(sys, "argv", ["cadence.py", "--listing", "cabin", "--check", "--today", "2026-10-10",
+                                      "--out", str(tmp_path / "c.json")])
+    cadence.main()
+    out = capsys.readouterr().out
     assert "0/7" not in out and "not tracked yet" in out, out
