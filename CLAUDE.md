@@ -14,6 +14,11 @@ Python scripts collect and validate evidence; the agent writes ALE + StoryBrand 
 - Credentials live in the gitignored `.env`. Never print keys, commit them, overwrite an
   existing `.env`, or send account config to the model just to inspect which keys exist.
 - Run history is local (`state/history.jsonl`). Nothing writes to a database.
+- **Never commit, push, fork, open a pull request or create a GitHub repo for this folder.**
+  It is the attendee's own copy of a tool, not a project. When they say "save", everything is
+  already saved on disk (reports in `~/Desktop/Listing Optimizer`): say so. At the 2026-09-29
+  summit a student's "save" became a push to Solnest-AI's GitHub. Putting a copy on their own
+  GitHub is a separate request they must make in so many words, and never involves Solnest-AI.
 
 ## Setup or update
 
@@ -35,16 +40,23 @@ by hand. You run every command yourself; the attendee never opens a terminal.
 
 ### Steps
 
-1. Existing `.git`: inspect status, preserve local edits, then `git pull --ff-only`. Never
-   clone a second copy. ZIP install: preserve local config/state; convert in place to git
-   only if asked, never by deleting the folder.
+1. Get the code current. Never clone a second copy, never delete the folder.
+   - No `.git` (the normal case: a downloaded folder) and `.venv` exists: run
+     `.venv/bin/python scripts/update.py`. It downloads the latest release over this folder
+     and keeps `.env`, `branding.json`, `config/`, `state/` and `output/`; relay its lines. A
+     first install (no `.venv` yet) is already current: skip this.
+   - A `.git` linked to Solnest-AI (a copy cloned before this rule): inspect status, preserve
+     local edits, then `git pull --ff-only`. Setup (step 2) then unlinks it if it is untouched.
 2. Run the setup script without prompts. It finds or installs uv and Python 3.13 (uv's own
    installer, per user, no admin prompt; Python under `%USERPROFILE%\.uv\python`, where the
    connections kit keeps it, because the desktop app is a Store app that redirects AppData
    writes) and Git (winget, which may show one Windows approval prompt), builds `.venv`,
    installs the requirements, creates `.env` from `.env.example` only if absent, links the
-   connections kit (step 3), runs the tests and checks each key with a free read-only
-   request. It never overwrites keys or files.
+   connections kit (step 3), runs the tests and checks each key with a small read-only
+   request. It never overwrites keys or files. After building `.venv` it runs
+   `scripts/detach_from_github.py`, which unlinks an untouched clone from Solnest-AI's GitHub
+   (never a working copy with edits, branches or unpushed commits; a developer opts out with
+   `.git/str-keep-attached`). Relay its one `GitHub:` line.
    - Windows, from the Bash tool (Git Bash) or PowerShell:
      `powershell.exe -NoProfile -ExecutionPolicy Bypass -File setup.ps1 -NoPrompt -AutoInstall`
    - Mac/Linux: `bash setup.sh --no-prompt --auto-install`
@@ -78,6 +90,21 @@ by hand. You run every command yourself; the attendee never opens a terminal.
 7. Optional branding: `branding.example.json` to `branding.json` only if absent.
    Per-listing configuration: `config/properties.example.json` to `config/properties.json`.
    Preserve `.env`, `config/`, `branding.json`, `state/`, and `output/` through upgrades.
+
+## When the user says "update the listing optimizer"
+
+Their copy is a plain folder, so it updates by download, not `git pull`:
+
+```bash
+.venv/bin/python scripts/update.py
+```
+
+Relay its lines (it names any file they had edited and where that version was saved), then run
+the setup command from step 2 so new packages install and the tests run. "Is there an update?"
+is `scripts/update.py --check`. "Undo the update" is `scripts/update.py --undo`, then setup.
+A folder that still has a `.git` linked to Solnest-AI updates with `git pull --ff-only`
+instead (update.py refuses it). When a run's summary ends with "Update available", tell the
+user that line once, after the report.
 
 ## Default workflow
 

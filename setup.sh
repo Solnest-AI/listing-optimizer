@@ -77,13 +77,8 @@ step 2 'Git'
 if command -v git >/dev/null 2>&1; then
   ok "$(git --version | sed 's/^git version /Git /')"
 else
-  warn 'Git is not installed.'
-  if [ "$(uname)" = Darwin ] && ask '  Install the Apple command line tools (includes Git)?'; then
-    xcode-select --install 2>/dev/null || true
-    PROBLEMS+=('Finish the command line tools installer, then run setup again.')
-  else
-    PROBLEMS+=('Install Git from https://git-scm.com/downloads then run setup again.')
-  fi
+  # The tool never needs git: updates come as downloads (scripts/update.py).
+  ok 'Git is not installed (not needed: updates come as downloads).'
 fi
 
 # ---------------------------------------------------------------- 3. venv + packages
@@ -98,6 +93,9 @@ fi
 "$UV" pip install --python .venv/bin/python --quiet -r requirements.txt -r requirements-dev.txt \
   || fail 'Package install failed. Check your internet connection and run setup again.'
 ok "Packages installed in .venv (Python $(.venv/bin/python -c 'import sys; print(sys.version.split()[0])'))"
+# A git clone stays linked to Solnest-AI's GitHub, and "save" then tries to push there (2026-09-29
+# summit). Unlink an untouched copy; a working copy is kept as is. Always exits 0.
+.venv/bin/python scripts/detach_from_github.py | sed 's/^\[setup\] /  OK  /'
 
 # ---------------------------------------------------------------- 4. keys
 step 4 'API keys: copied from your STR Secrets Connections kit'

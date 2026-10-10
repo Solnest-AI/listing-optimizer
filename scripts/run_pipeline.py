@@ -31,6 +31,7 @@ from pathlib import Path
 import airbnb_live
 import artifacts
 import console
+import update
 
 ROOT = Path(__file__).resolve().parent.parent
 PY = sys.executable
@@ -566,6 +567,11 @@ def main():
     if not critical:
         print(f"  NEXT: Read {wd / 'digest.md'} and NOTHING else. Then apply the ALE + SB7 "
               f"rubrics and write result.json.")
+    # Students' copies are plain folders (no git pull), so this is how they hear a fix shipped.
+    # At most one check a day, silent offline, never fails a run; LO_NO_UPDATE_CHECK=1 turns it off.
+    note = update.notice(ROOT)
+    if note:
+        print(f"  ℹ️  {note}")
     sys.exit(1 if critical else 0)
 
 
