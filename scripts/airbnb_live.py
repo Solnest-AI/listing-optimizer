@@ -37,6 +37,7 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 # (measured from Canada: airbnb.ca). Follow it once rather than guessing the domain.
 _DOMAIN_SWITCH = re.compile(r'action="https://(www\.airbnb\.[a-z.]+)/v2/domain_switch')
 _OG_DESCRIPTION = re.compile(r'<meta property="og:description" content="([^"]*)"')
+_OG_IMAGE = re.compile(r'<meta property="og:image" content="([^"]*)"')
 AIRBNB_IMG = re.compile(r"^https://a\d\.muscache\.com/im/pictures/\S+$")
 # Description sections as the page titles them -> our field names. The untitled one is the summary.
 SECTIONS = {None: "summary", "The space": "description", "Guest access": "guest_access",
@@ -74,6 +75,36 @@ def _objects(page: str, typename: str):
             yield _DECODER.raw_decode(page, m.start())[0]
         except ValueError:
             continue
+
+
+def _listing_order(page: str) -> list[tuple[str, str]]:
+    """The gallery in the host's listing order, as (url, caption), from the page's heroMedia.
+
+    The photo tour (PhotoTourModalSection) groups photos by room, so its order is not the
+    listing's: on room 1492274390479279422 the real cover is tour photo #2 and the listing order
+    in tour numbers starts [2, 3, 1, 5, 6, 4, 8, 7] (2026-10-10; Bert Perez's report of a
+    living-room "cover" on 2026-09-29). heroMedia holds the whole gallery in listing order,
+    and og:image (the cover) was its first photo on all 6 live listings checked."""
+    key = '"heroMedia":'
+    at = page.find(key)
+    if at < 0:
+        return []
+    try:
+        media = _DECODER.raw_decode(page, at + len(key))[0]
+    except ValueError:
+        return []
+    out = []
+    for edge in (media.get("edges") or []) if isinstance(media, dict) else []:
+        node = edge.get("node") if isinstance(edge, dict) else None
+        image = node.get("image") if isinstance(node, dict) and node.get("__typename") == "HeroImageItem" else None
+        if not isinstance(image, dict):
+            continue
+        url = str(image.get("uri") or "").split("?")[0]
+        user = ((image.get("caption") or {}).get("user") or {}) if isinstance(image.get("caption"), dict) else {}
+        caption = str((user.get("source") if isinstance(user, dict) else "") or "").strip()
+        if AIRBNB_IMG.match(url) and url not in (u for u, _ in out):
+            out.append((url, caption))
+    return out
 
 
 def text(value) -> str:
@@ -115,22 +146,32 @@ def parse(page: str, room_id: str) -> dict:
     listing["amenities"] = list(dict.fromkeys(offered))
     listing["not_included"] = list(dict.fromkeys(not_included))
 
+    # Captions come from the photo tour (the host's caption; its accessibilityLabel is "Listing
+    # image N" when there is none). Its ORDER is never used: it is grouped by room.
     tour = next(_objects(page, "PhotoTourModalSection"), None)
-    images = [i for i in (tour or {}).get("mediaItems") or [] if isinstance(i, dict) and i.get("__typename") == "Image"]
-    photos = []
-    for i in images:
-        url = str(i.get("baseUrl") or "").split("?")[0]
-        if not AIRBNB_IMG.match(url) or any(p["url"] == url for p in photos):
-            continue
-        # The host's caption. accessibilityLabel is "Listing image N" when there is none.
-        caption = str((i.get("imageMetadata") or {}).get("caption") or "").strip()
-        photos.append({"position": len(photos) + 1, "url": url, "caption": caption})
-    if not photos:
+    captions = {}
+    for i in (tour or {}).get("mediaItems") or []:
+        if isinstance(i, dict) and i.get("__typename") == "Image":
+            url = str(i.get("baseUrl") or "").split("?")[0]
+            if AIRBNB_IMG.match(url):
+                captions.setdefault(url, str((i.get("imageMetadata") or {}).get("caption") or "").strip())
+    order = _listing_order(page)
+    if not order and not captions:
         raise PageUnreadable("no photo gallery on the page")
+    if not order:
+        raise PageUnreadable("the photo order is not on the page (only the room-by-room photo tour)")
+    og = _OG_IMAGE.search(page)
+    cover = html.unescape(og.group(1)).split("?")[0] if og else ""
+    if cover and cover != order[0][0]:
+        raise PageUnreadable("the page's cover photo is not first in its photo order; the order is unclear")
+    photos = [{"position": n, "url": url, "caption": captions.get(url) or caption}
+              for n, (url, caption) in enumerate(order, 1)]
+    # A photo the tour shows that the listing order does not has no position: not assessed.
+    reported = len({u for u, _ in order} | set(captions))
 
     return {"provider": "airbnb", "room_id": str(room_id),
             "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "complete": True, "returned": len(photos), "reported": len(photos),
+            "complete": len(photos) == reported, "returned": len(photos), "reported": reported,
             "photos": photos, "listing": listing}
 
 
@@ -165,7 +206,8 @@ def to_images(g: dict) -> dict:
     return {"data": [{"url": p["url"] + "?im_w=1200", "thumbnail_url": p["url"] + "?im_w=480",
                       "caption": p.get("caption") or "", "order": p["position"]} for p in g["photos"]],
             "_source": {"kind": "live_airbnb", "provider": "airbnb", "fetched_at": g.get("fetched_at"),
-                        "complete": True, "returned": len(g["photos"]), "reported": len(g["photos"])}}
+                        "complete": g.get("complete", True) is not False, "returned": len(g["photos"]),
+                        "reported": max(int(g.get("reported") or 0), len(g["photos"]))}}
 
 
 def main():
