@@ -215,8 +215,20 @@ or `output/` (reports). Every file it replaces is saved in `.update-backup/` fir
 had edited one it tells you which. To go back, say "undo the listing optimizer update"
 (`scripts/update.py --undo`).
 
-When a newer release is out, the end of each optimization run says "Update available" (checked
-at most once a day; `LO_NO_UPDATE_CHECK=1` turns the check off). What changed in each release
+Updates normally install themselves, so you never have to ask. Setup turns on automatic
+updates: once a day, in the background when Claude Code starts, the tool runs
+`scripts/update.py` and then setup, with the same rules as above, and if a new release fails
+setup it puts the old version back by itself. "Is it updating itself?" is
+`~/.solnest/autoupdate.py status`; `pause` stops all automatic updates and `resume` turns them
+back on. Saying "update the listing optimizer" still works any time.
+
+Your own changes to how the tool works (wording, tone, what to include) go in
+`~/.solnest/listing-optimizer/my-instructions.md`, outside this folder, so no update can wipe
+them. Just tell Claude what you want changed and it writes them there.
+
+If the end of an optimization run says "Update available", automatic updates are off or
+failing on this computer, and Claude offers to update now (checked at most once a day;
+`LO_NO_UPDATE_CHECK=1` turns the check off). What changed in each release
 is on the [releases page](https://github.com/Solnest-AI/listing-optimizer/releases), in plain
 English.
 

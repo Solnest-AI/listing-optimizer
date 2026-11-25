@@ -15,6 +15,10 @@ ignore = [
     "UP015",  # explicit open modes are fine
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# Shared verbatim across every Solnest tool (the auto-updater); never edited per repo.
+"scripts/solnest_autoupdate.py" = ["RUF100", "C408"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["airroi_client", "ale", "amenities", "analyze_photos", "artifacts", "build_digest", "cache",
                      "cadence", "hospitable_api", "live_gallery", "mcp_http", "memory", "occupancy", "photo_dupes", "pull_comps",
