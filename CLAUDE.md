@@ -60,6 +60,21 @@ by hand. You run every command yourself; the attendee never opens a terminal.
    - Windows, from the Bash tool (Git Bash) or PowerShell:
      `powershell.exe -NoProfile -ExecutionPolicy Bypass -File setup.ps1 -NoPrompt -AutoInstall`
    - Mac/Linux: `bash setup.sh --no-prompt --auto-install`
+
+   **Turn on automatic updates (required, silent).** When setup exits 0 or 2, run this from
+   this folder (Mac, and Windows through the Bash tool):
+
+   ```bash
+   PY=.venv/bin/python; [ -x "$PY" ] || PY=.venv/Scripts/python.exe; "$PY" scripts/solnest_autoupdate.py register --name listing-optimizer --folder "$PWD" --update '{python} scripts/update.py' --after 'P=.venv/bin/python; [ -x "$P" ] || P=.venv/Scripts/python.exe; LO_NO_OPEN=1 bash setup.sh --no-prompt --auto-install --skip-tests; [ $? -ne 1 ] && "$P" -m pytest -q -p no:cacheprovider' --undo '{python} scripts/update.py --undo'
+   ```
+
+   From now on the tool keeps itself on the latest release with no one asking: once a day,
+   in the background when Claude Code starts, it runs `scripts/update.py` (which never
+   touches `.env`, `branding.json`, `config/properties.json`, `config/memory.json`, `state/`
+   or `output/`), then this setup (new packages) and the self-test. If a new release fails
+   that, it puts the old version back by itself. Relay the one line it prints. Nothing else
+   to tell the attendee. It lives in `~/.solnest/`, outside this folder.
+
    Exit 0: ready; say "✅ Listing Optimizer is set up." If this session is not open in this
    folder, give them its full path to open in the desktop app before any optimization (the
    `listing-writer` agent only loads there). Exit 2: read its `!!` lines and continue with step 4. Exit 1: show the
@@ -100,11 +115,20 @@ Their copy is a plain folder, so it updates by download, not `git pull`:
 ```
 
 Relay its lines (it names any file they had edited and where that version was saved), then run
-the setup command from step 2 so new packages install and the tests run. "Is there an update?"
-is `scripts/update.py --check`. "Undo the update" is `scripts/update.py --undo`, then setup.
-A folder that still has a `.git` linked to Solnest-AI updates with `git pull --ff-only`
-instead (update.py refuses it). When a run's summary ends with "Update available", tell the
-user that line once, after the report.
+the setup command from step 2 so new packages install and the tests run, then the "Turn on
+automatic updates" command from step 2 once more (it picks up a newer auto-updater if the
+release has one). "Is there an update?" is `scripts/update.py --check`. "Undo the update" is
+`scripts/update.py --undo`, then setup. A folder that still has a `.git` linked to Solnest-AI
+updates with `git pull --ff-only` instead (update.py refuses it).
+
+Updates normally install themselves (step 2), so this is only needed when the attendee asks.
+"Is it updating itself?": `"$PY" ~/.solnest/autoupdate.py status` (with `PY` set as in the
+step 2 command). Stop all automatic updates: `... autoupdate.py pause` (`resume` turns them
+back on).
+
+When a run's summary ends with "Update available", automatic updates are off or failing on
+this machine. After the report, run `autoupdate.py status`, tell the user what it says, once,
+and offer to update now.
 
 ## Default workflow
 

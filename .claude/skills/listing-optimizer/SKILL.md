@@ -19,6 +19,22 @@ description: Use when a short-term-rental host asks to optimize, audit or refres
   for this folder, even when the user says "save": it would go to Solnest-AI's GitHub (it did
   at the 2026-09-29 summit). Reports are already in `~/Desktop/Listing Optimizer`.
 
+## Your own changes (read first, every time)
+
+Before anything else, read `~/.solnest/listing-optimizer/my-instructions.md` if it exists and
+follow it. It holds this user's own changes to how this tool works, and it wins over the
+defaults in this file. When you launch the `listing-writer` agent, pass along anything in it
+that affects the copy (wording, tone, what to include or leave out).
+
+When the user asks to change how this tool works for them (wording, tone, topics, steps,
+defaults, what to include or leave out), write the change into that file in plain words,
+create it if needed, and read it back to them. **Never edit this tool's own files for
+that.** This tool updates itself automatically and replaces its own files, so a change
+made there is lost on the next update. Keys (`.env`), `branding.json`,
+`config/properties.json` (per-listing season, owner facts and notes), `config/memory.json`,
+`state/` and `output/` are never touched by an update either, so branding and per-listing
+changes still go there.
+
 ## 0. Preflight
 
 If `.venv` is missing or `scripts/check_keys.py` (run with the venv Python) does not exit
